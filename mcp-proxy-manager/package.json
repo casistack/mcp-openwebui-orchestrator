@@ -1,0 +1,36 @@
+{
+  "name": "mcp-proxy-manager",
+  "version": "1.0.0",
+  "description": "Automated MCP proxy manager for OpenWebUI integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "echo \"No tests yet\" && exit 0",
+    "audit": "npm audit --audit-level=moderate",
+    "audit-fix": "npm audit fix",
+    "security-check": "npm audit && echo 'Security check completed'"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "chokidar": "^3.5.3",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.0.1",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "mcp",
+    "openwebui",
+    "proxy",
+    "automation"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "author": "MCP Proxy Manager",
+  "license": "MIT"
+}

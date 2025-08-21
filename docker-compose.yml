@@ -1,0 +1,100 @@
+services:
+  mcp-proxy-manager:
+    build:
+      context: ./mcp-proxy-manager
+      dockerfile: Dockerfile
+    container_name: mcp-proxy-manager
+    restart: unless-stopped
+    # Security hardening with comprehensive protection
+    read_only: true
+    user: mcpuser  # Non-root user
+    # Security context for container hardening
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:unconfined  # Allow flexibility for MCP tools
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE  # Required for binding to ports
+      - SETGID            # Required for user switching
+      - SETUID            # Required for user switching
+    # Secure tmpfs mounts for writable areas - sized for MCP ecosystem
+    tmpfs:
+      - /tmp:exec,nosuid,size=1g  # Increased for multiple MCP tool installations
+      - /var/log/mcp-proxy-manager:noexec,nosuid,size=100m
+      - /home/mcpuser/.cache:exec,nosuid,size=2g  # Increased for UV, npm, playwright caches
+      - /home/mcpuser/.local/share:exec,nosuid,size=1g  # Increased for UV tools and packages
+      - /app/tmp:exec,nosuid,size=500m  # Increased for npm temp operations
+    ports:
+      # Bind only to localhost for security (change if external access needed)
+      - "127.0.0.1:${MANAGER_PORT:-3001}:${MANAGER_PORT:-3001}"
+      # MCP Proxy port range - bind to localhost for security
+      - "127.0.0.1:${PORT_RANGE_START:-4200}-${PORT_RANGE_END:-4250}:${PORT_RANGE_START:-4200}-${PORT_RANGE_END:-4250}"
+    volumes:
+      # Mount your Claude Desktop config (read-only for security)
+      - ./config/claude_desktop_config.json:/config/claude_desktop_config.json:ro
+      # Environment files (encrypted, writable) - mounted to read-only tmpfs
+      - ./config:/config:ro
+      # Persist user home directory for environment variables and user data
+      - mcpuser-home:/home/mcpuser:rw
+    # Docker secrets for sensitive data (commented - can be enabled)
+    # secrets:
+    #   - webui_secret_key
+    #   - source: claude_config
+    #     target: /run/secrets/claude_config.json
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - MANAGER_PORT=${MANAGER_PORT:-3001}
+      - CLAUDE_CONFIG_PATH=${CLAUDE_CONFIG_PATH:-/config/claude_desktop_config.json}
+      - MCP_PROXY_TYPE=${MCP_PROXY_TYPE:-mcpo}
+      - MCP_PROXY_MODE=${MCP_PROXY_MODE:-unified} # individual or 'unified' for route-based single MCPO
+      - PORT_RANGE_START=${PORT_RANGE_START:-4200}
+      - PORT_RANGE_END=${PORT_RANGE_END:-4250}
+      # Cache and tool directories - use user home directory (best practice)
+      - UV_CACHE_DIR=/home/mcpuser/.cache/uv
+      - UV_TOOL_DIR=/home/mcpuser/.local/share/uv/tools
+      - NPM_CONFIG_CACHE=/home/mcpuser/.cache/npm
+      - PLAYWRIGHT_BROWSERS_PATH=/home/mcpuser/.cache/playwright
+      # Ensure npm uses an exec-able tmp dir (avoid noexec mounts)
+      - NPM_CONFIG_TMP=/app/tmp
+      - TMPDIR=/app/tmp
+    # Resource limits for security and stability
+    deploy:
+      resources:
+        limits:
+          memory: 6G        # Increased to accommodate tmpfs mounts and MCP tools
+          cpus: "2.0"       # Increased for multiple MCP server processing
+          pids: 1024        # Increased for MCP tool processes
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  default:
+    driver: bridge
+  mcp-internal:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/24
+    # Remove 'internal: true' to allow external access for OpenWebUI integration
+    # Set to 'internal: true' for complete network isolation if not needed
+
+# Named volumes for persistent storage
+volumes:
+  mcpuser-home:
+    driver: local
+
+# Docker secrets configuration (commented - uncomment to enable)
+# secrets:
+#   webui_secret_key:
+#     file: ./secrets/webui_secret_key.txt
+#   claude_config:
+#     file: ./secrets/claude_desktop_config.json
