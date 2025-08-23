@@ -22,7 +22,7 @@ services:
       - ./mcp-proxy-manager/src/__tests__:/app/src/__tests__
     networks:
       - mcp-test-network
-    command: ["sh", "-c", "npm install && npm test"]
+    command: ["sh", "-c", "npm install --include=dev && npm test"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 30s
