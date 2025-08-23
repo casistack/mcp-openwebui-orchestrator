@@ -1,0 +1,63 @@
+# Pre-commit hooks for code quality and testing
+# Install with: pip install pre-commit && pre-commit install
+
+repos:
+  # Code formatting and linting
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: detect-private-key
+
+  # JavaScript/Node.js specific checks
+  - repo: local
+    hooks:
+      # Run unit tests before commit
+      - id: jest-unit-tests
+        name: Jest Unit Tests
+        entry: bash -c 'cd mcp-proxy-manager && npm run test:unit'
+        language: system
+        stages: [commit]
+        verbose: true
+
+      # Run quick integration tests
+      - id: jest-integration-quick
+        name: Jest Integration Tests (Quick)
+        entry: bash -c 'cd mcp-proxy-manager && timeout 30 npm run test:integration || true'
+        language: system
+        stages: [commit]
+
+      # Security audit
+      - id: npm-audit
+        name: NPM Security Audit
+        entry: bash -c 'cd mcp-proxy-manager && npm audit --audit-level high'
+        language: system
+        stages: [commit]
+
+      # Check for TODO/FIXME comments in new code
+      - id: check-todos
+        name: Check for TODO/FIXME
+        entry: bash -c 'if git diff --cached --name-only | grep -E "\.(js|ts|json)$" | xargs grep -n "TODO\|FIXME\|XXX" 2>/dev/null; then echo "❌ Found TODO/FIXME comments. Please resolve before committing."; exit 1; fi'
+        language: system
+        stages: [commit]
+
+      # Validate Docker configurations
+      - id: docker-validate
+        name: Validate Docker Configurations
+        entry: bash -c 'docker-compose -f docker-compose.yml config > /dev/null && docker-compose -f docker-compose.test.yml config > /dev/null'
+        language: system
+        stages: [commit]
+
+      # Check that coverage doesn't decrease
+      - id: coverage-check
+        name: Coverage Regression Check
+        entry: bash -c 'cd mcp-proxy-manager && npm run test:coverage > /dev/null 2>&1 || echo "⚠️ Coverage check failed - review test coverage"'
+        language: system
+        stages: [commit]

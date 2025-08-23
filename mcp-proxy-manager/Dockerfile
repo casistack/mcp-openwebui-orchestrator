@@ -64,11 +64,12 @@ RUN npm install -g playwright \
 # Note: SuperGateway will be installed via npx on-demand to avoid dependency issues
 
 # Copy package files and install dependencies
-COPY package*.json ./
+COPY mcp-proxy-manager/package*.json ./
 RUN npm ci --only=production && npm cache clean --force
 
-# Copy application code
-COPY src/ ./src/
+# Copy application code and Jest configuration
+COPY mcp-proxy-manager/src/ ./src/
+COPY mcp-proxy-manager/jest.config.js ./
 
 # Stage 2: Runtime environment (minimal)
 FROM node:22-slim AS runtime
@@ -106,6 +107,7 @@ RUN mkdir -p /config /var/log/mcp-proxy-manager /app/tmp && \
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/jest.config.js ./
 
 # Copy UV and global tools from builder
 COPY --from=builder /root/.local/bin/uv /usr/local/bin/

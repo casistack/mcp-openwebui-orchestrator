@@ -1,0 +1,201 @@
+name: Performance Monitoring
+
+on:
+  schedule:
+    # Run performance tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  performance-baseline:
+    runs-on: ubuntu-latest
+    name: Performance Baseline Testing
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Install dependencies
+      working-directory: ./mcp-proxy-manager
+      run: npm ci
+    
+    - name: Start services
+      run: |
+        cp config/claude_desktop_config.test.json config/claude_desktop_config.json
+        docker-compose up -d
+        timeout 120 bash -c 'until curl -f http://localhost:3001/health; do sleep 5; done'
+    
+    - name: Install performance testing tools
+      run: |
+        npm install -g artillery@latest
+        npm install -g clinic
+    
+    - name: Run memory leak detection
+      working-directory: ./mcp-proxy-manager
+      run: |
+        # Start the application with clinic
+        clinic doctor --on-port 'echo "Application started"' -- node src/index.js &
+        APP_PID=$!
+        
+        # Wait for startup
+        sleep 30
+        
+        # Run some load
+        for i in {1..100}; do
+          curl -s http://localhost:3001/health > /dev/null
+          curl -s http://localhost:3001/status > /dev/null
+          sleep 0.1
+        done
+        
+        # Stop the application
+        kill $APP_PID
+        wait $APP_PID 2>/dev/null || true
+    
+    - name: Run load test with metrics
+      run: |
+        cat > performance-test.yml << 'EOF'
+        config:
+          target: 'http://localhost:3001'
+          phases:
+            # Warm-up phase
+            - duration: 30
+              arrivalRate: 1
+              name: "Warm-up"
+            # Load testing phase
+            - duration: 120
+              arrivalRate: 10
+              name: "Load test"
+            # Spike testing
+            - duration: 30
+              arrivalRate: 50
+              name: "Spike test"
+          plugins:
+            metrics-by-endpoint: {}
+        scenarios:
+          - name: "Health Check"
+            weight: 40
+            requests:
+              - get:
+                  url: "/health"
+          - name: "Status Check"
+            weight: 30
+            requests:
+              - get:
+                  url: "/status"
+          - name: "Server List"
+            weight: 20
+            requests:
+              - get:
+                  url: "/servers"
+          - name: "OpenAPI Endpoints"
+            weight: 10
+            requests:
+              - get:
+                  url: "/openapi-endpoints"
+        EOF
+        
+        artillery run performance-test.yml --output performance-results.json
+    
+    - name: Generate performance report
+      run: |
+        artillery report performance-results.json --output performance-report.html
+    
+    - name: Check performance thresholds
+      run: |
+        # Extract metrics from results
+        node << 'EOF'
+        const fs = require('fs');
+        const results = JSON.parse(fs.readFileSync('performance-results.json'));
+        
+        const aggregate = results.aggregate;
+        const p95ResponseTime = aggregate.latency.p95;
+        const errorRate = (aggregate.errors / aggregate.requestsCompleted) * 100;
+        
+        console.log(`P95 Response Time: ${p95ResponseTime}ms`);
+        console.log(`Error Rate: ${errorRate.toFixed(2)}%`);
+        
+        // Performance thresholds
+        const MAX_P95_RESPONSE_TIME = 1000; // 1 second
+        const MAX_ERROR_RATE = 1; // 1%
+        
+        let failed = false;
+        
+        if (p95ResponseTime > MAX_P95_RESPONSE_TIME) {
+          console.error(`❌ P95 response time (${p95ResponseTime}ms) exceeds threshold (${MAX_P95_RESPONSE_TIME}ms)`);
+          failed = true;
+        } else {
+          console.log(`✅ P95 response time within threshold`);
+        }
+        
+        if (errorRate > MAX_ERROR_RATE) {
+          console.error(`❌ Error rate (${errorRate.toFixed(2)}%) exceeds threshold (${MAX_ERROR_RATE}%)`);
+          failed = true;
+        } else {
+          console.log(`✅ Error rate within threshold`);
+        }
+        
+        if (failed) {
+          process.exit(1);
+        }
+        EOF
+    
+    - name: Store performance results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: performance-results
+        path: |
+          performance-results.json
+          performance-report.html
+        retention-days: 30
+    
+    - name: Comment on recent PRs with performance impact
+      if: failure()
+      run: |
+        echo "🚨 Performance regression detected! Check the artifacts for details."
+        # Here you would typically post to Slack, create GitHub issues, etc.
+    
+    - name: Cleanup
+      if: always()
+      run: docker-compose down -v
+
+  resource-monitoring:
+    runs-on: ubuntu-latest
+    name: Resource Usage Monitoring
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Monitor Docker resource usage
+      run: |
+        cp config/claude_desktop_config.test.json config/claude_desktop_config.json
+        docker-compose up -d
+        
+        # Monitor for 5 minutes
+        echo "Monitoring Docker resource usage..."
+        for i in {1..60}; do
+          echo "=== Minute $i ===" >> resource-usage.log
+          docker stats --no-stream >> resource-usage.log 2>&1
+          sleep 60
+        done
+        
+        # Analyze resource usage
+        echo "Resource usage analysis:"
+        grep -E "(CPU|MEM)" resource-usage.log | tail -10
+    
+    - name: Upload resource monitoring results
+      uses: actions/upload-artifact@v3
+      with:
+        name: resource-monitoring
+        path: resource-usage.log
+        retention-days: 7
+    
+    - name: Cleanup
+      if: always()
+      run: docker-compose down -v

@@ -1,0 +1,56 @@
+services:
+  mcp-proxy-manager-test:
+    build:
+      context: .
+      dockerfile: mcp-proxy-manager/Dockerfile
+    container_name: mcp-proxy-manager-test
+    environment:
+      - NODE_ENV=test
+      - MCP_PROXY_MODE=unified
+      - ENABLE_MULTI_TRANSPORT=false
+      - MANAGER_PORT=3001
+      - PORT_RANGE_START=4200
+      - PORT_RANGE_END=4300
+      - SUPERGATEWAY_LOG_LEVEL=none
+      - CLAUDE_CONFIG_PATH=/config/claude_desktop_config.json
+    # No port binding needed for tests - they run entirely within the container
+    volumes:
+      - ./config:/config:ro
+      - ./logs:/var/log/mcp-proxy-manager
+      - ./mcp-proxy-manager/src/__tests__:/app/src/__tests__
+    networks:
+      - mcp-test-network
+    command: ["sh", "-c", "npm install --include=dev && npm test"]
+    # Health check disabled for test container since we only run tests and exit
+    # healthcheck: disabled
+    restart: "no"
+
+  # Test configuration with minimal MCP servers for integration testing
+  mcp-proxy-manager-integration:
+    build:
+      context: .
+      dockerfile: mcp-proxy-manager/Dockerfile
+    container_name: mcp-proxy-manager-integration
+    environment:
+      - NODE_ENV=test
+      - MCP_PROXY_MODE=unified
+      - ENABLE_MULTI_TRANSPORT=true
+      - MANAGER_PORT=3001
+      - PORT_RANGE_START=4200
+      - PORT_RANGE_END=4220
+      - SUPERGATEWAY_LOG_LEVEL=info
+      - CLAUDE_CONFIG_PATH=/config/claude_desktop_config.test.json
+    # No port binding needed for integration tests
+    volumes:
+      - ./config:/config:ro
+      - ./logs:/var/log/mcp-proxy-manager
+    networks:
+      - mcp-test-network
+    restart: "no"
+    profiles:
+      - integration
+
+networks:
+  mcp-test-network:
+    driver: bridge
+    name: mcp-test-network
