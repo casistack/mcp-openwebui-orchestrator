@@ -13,9 +13,7 @@ services:
       - PORT_RANGE_END=4300
       - SUPERGATEWAY_LOG_LEVEL=none
       - CLAUDE_CONFIG_PATH=/config/claude_desktop_config.json
-    ports:
-      - "3001:3001"
-      - "4200-4300:4200-4300"
+    # No port binding needed for tests - they run entirely within the container
     volumes:
       - ./config:/config:ro
       - ./logs:/var/log/mcp-proxy-manager
@@ -23,12 +21,8 @@ services:
     networks:
       - mcp-test-network
     command: ["sh", "-c", "npm install --include=dev && npm test"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    # Health check disabled for test container since we only run tests and exit
+    # healthcheck: disabled
     restart: "no"
 
   # Test configuration with minimal MCP servers for integration testing
@@ -46,9 +40,7 @@ services:
       - PORT_RANGE_END=4220
       - SUPERGATEWAY_LOG_LEVEL=info
       - CLAUDE_CONFIG_PATH=/config/claude_desktop_config.test.json
-    ports:
-      - "3002:3001"
-      - "4200-4220:4200-4220"
+    # No port binding needed for integration tests
     volumes:
       - ./config:/config:ro
       - ./logs:/var/log/mcp-proxy-manager
