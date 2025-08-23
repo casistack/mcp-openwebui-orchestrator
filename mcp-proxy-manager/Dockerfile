@@ -64,11 +64,11 @@ RUN npm install -g playwright \
 # Note: SuperGateway will be installed via npx on-demand to avoid dependency issues
 
 # Copy package files and install dependencies
-COPY package*.json ./
+COPY mcp-proxy-manager/package*.json ./
 RUN npm ci --only=production && npm cache clean --force
 
 # Copy application code
-COPY src/ ./src/
+COPY mcp-proxy-manager/src/ ./src/
 
 # Stage 2: Runtime environment (minimal)
 FROM node:22-slim AS runtime
