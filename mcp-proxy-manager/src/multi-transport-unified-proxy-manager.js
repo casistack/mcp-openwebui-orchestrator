@@ -4,6 +4,7 @@ const path = require('path');
 const axios = require('axios');
 const WebSocket = require('ws');
 const UnifiedProxyManager = require('./unified-proxy-manager');
+const { logger } = require('./logger');
 
 /**
  * Multi-Transport Unified Proxy Manager - CORRECTED ARCHITECTURE
@@ -220,7 +221,7 @@ class MultiTransportUnifiedProxyManager extends UnifiedProxyManager {
         throw new Error(`Failed to allocate port for ${serverId} ${transport} transport`);
       }
 
-      console.log(`Starting ${transport} SuperGateway for server '${serverId}' on port ${port}`);
+      logger.info(`Starting ${transport} SuperGateway for server '${serverId}' on port ${port}`);
 
       // Build the MCP server command from config
       const mcpCommand = this.buildMCPServerCommand(serverConfig);
@@ -231,7 +232,8 @@ class MultiTransportUnifiedProxyManager extends UnifiedProxyManager {
         '--stdio', mcpCommand,  // SuperGateway runs MCP server directly
         '--port', port.toString(),
         '--host', '0.0.0.0',
-        '--logLevel', 'none'    // Suppress connection logging to reduce console spam
+        '--healthEndpoint', '/health', // Enable health endpoint for monitoring
+        '--logLevel', process.env.SUPERGATEWAY_LOG_LEVEL || 'info'  // Configurable logging level
       ];
       
       // Add transport-specific flags
@@ -326,25 +328,30 @@ class MultiTransportUnifiedProxyManager extends UnifiedProxyManager {
     process.stdout.on('data', (data) => {
       const output = data.toString().trim();
       if (output) {
-        console.log(`[${processKey}] ${output}`);
+        logger.info(`[${processKey}] ${output}`);
       }
     });
 
     process.stderr.on('data', (data) => {
       const error = data.toString().trim();
       if (error && !error.includes('npm WARN')) {
-        console.error(`[${processKey}] ${error}`);
+        // Use appropriate log level based on content
+        if (error.includes('SSE') || error.includes('connection') || error.includes('client disconnected')) {
+          logger.info(`[${processKey}] Connection event: ${error}`);
+        } else {
+          logger.error(`[${processKey}] ${error}`);
+        }
       }
     });
 
     process.on('exit', (code, signal) => {
-      console.log(`${processKey} process exited with code ${code}, signal ${signal}`);
+      logger.warn(`${processKey} process exited with code ${code}, signal ${signal}`);
       this.transportHealth.set(processKey, false);
       
       // Auto-restart on unexpected exit (with limit)
       if (code !== 0 && !signal && processInfo && processInfo.restartCount < 3) {
         processInfo.restartCount++;
-        console.log(`Attempting to restart ${processKey} (attempt ${processInfo.restartCount}/3)...`);
+        logger.warn(`Attempting to restart ${processKey} (attempt ${processInfo.restartCount}/3)...`);
         
         setTimeout(async () => {
           try {
