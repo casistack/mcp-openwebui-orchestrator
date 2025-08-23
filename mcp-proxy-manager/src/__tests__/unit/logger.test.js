@@ -30,10 +30,13 @@ describe('Logger Utility', () => {
 
     test('should return different timestamps for consecutive calls', async () => {
       const timestamp1 = getTimestamp();
-      await new Promise(resolve => setTimeout(resolve, 1)); // Wait 1ms
+      await new Promise(resolve => setTimeout(resolve, 2)); // Wait 2ms
       const timestamp2 = getTimestamp();
       
-      expect(timestamp1).not.toBe(timestamp2);
+      // Compare dates instead of exact strings for more reliable testing
+      const date1 = new Date(timestamp1);
+      const date2 = new Date(timestamp2);
+      expect(date2.getTime()).toBeGreaterThan(date1.getTime());
     });
   });
 
