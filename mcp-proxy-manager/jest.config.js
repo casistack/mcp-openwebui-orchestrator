@@ -5,11 +5,7 @@ module.exports = {
   // Test environment
   testEnvironment: 'node',
 
-  // Test directories
-  testMatch: [
-    '<rootDir>/src/__tests__/**/*.test.js',
-    '<rootDir>/src/__tests__/**/*.spec.js'
-  ],
+  // Test directories - handled by projects configuration below
 
   // Coverage configuration
   collectCoverageFrom: [
