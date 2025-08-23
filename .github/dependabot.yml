@@ -1,0 +1,71 @@
+# Dependabot configuration for automated dependency updates
+# Documentation: https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+  # Enable version updates for npm (Node.js)
+  - package-ecosystem: "npm"
+    directory: "/mcp-proxy-manager"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    # Limit the number of open PRs
+    open-pull-requests-limit: 10
+    # Group related updates
+    groups:
+      # Group all Jest-related updates
+      testing-dependencies:
+        patterns:
+          - "jest*"
+          - "@types/jest"
+          - "supertest"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group all MCP-related dependencies
+      mcp-dependencies:
+        patterns:
+          - "@modelcontextprotocol/*"
+          - "*mcp*"
+    # Automatic security updates
+    target-branch: "develop"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    # Auto-merge patch updates for non-critical dependencies
+    reviewers:
+      - "maintainer-team"
+    assignees:
+      - "lead-developer"
+    labels:
+      - "dependencies"
+      - "automated"
+
+  # Docker dependency updates
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "UTC"
+    commit-message:
+      prefix: "docker"
+    reviewers:
+      - "devops-team"
+
+  # GitHub Actions updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: 1
+      time: "09:00"
+      timezone: "UTC"
+    commit-message:
+      prefix: "ci"
+    reviewers:
+      - "devops-team"

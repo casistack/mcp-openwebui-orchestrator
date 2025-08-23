@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "memory-test": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "brave-search-test": {
+      "command": "npx", 
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "test-api-key"
+      }
+    }
+  }
+}

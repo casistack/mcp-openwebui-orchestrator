@@ -1,0 +1,65 @@
+version: "3.8"
+services:
+  mcp-proxy-manager-test:
+    build:
+      context: .
+      dockerfile: mcp-proxy-manager/Dockerfile
+    container_name: mcp-proxy-manager-test
+    environment:
+      - NODE_ENV=test
+      - MCP_PROXY_MODE=unified
+      - ENABLE_MULTI_TRANSPORT=false
+      - MANAGER_PORT=3001
+      - PORT_RANGE_START=4200
+      - PORT_RANGE_END=4300
+      - SUPERGATEWAY_LOG_LEVEL=none
+      - CLAUDE_CONFIG_PATH=/config/claude_desktop_config.json
+    ports:
+      - "3001:3001"
+      - "4200-4300:4200-4300"
+    volumes:
+      - ./config:/config:ro
+      - ./logs:/var/log/mcp-proxy-manager
+      - ./mcp-proxy-manager/src/__tests__:/app/src/__tests__
+    networks:
+      - mcp-test-network
+    command: ["npm", "test"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: "no"
+
+  # Test configuration with minimal MCP servers for integration testing
+  mcp-proxy-manager-integration:
+    build:
+      context: .
+      dockerfile: mcp-proxy-manager/Dockerfile
+    container_name: mcp-proxy-manager-integration
+    environment:
+      - NODE_ENV=test
+      - MCP_PROXY_MODE=unified
+      - ENABLE_MULTI_TRANSPORT=true
+      - MANAGER_PORT=3001
+      - PORT_RANGE_START=4200
+      - PORT_RANGE_END=4220
+      - SUPERGATEWAY_LOG_LEVEL=info
+      - CLAUDE_CONFIG_PATH=/config/claude_desktop_config.test.json
+    ports:
+      - "3002:3001"
+      - "4200-4220:4200-4220"
+    volumes:
+      - ./config:/config:ro
+      - ./logs:/var/log/mcp-proxy-manager
+    networks:
+      - mcp-test-network
+    restart: "no"
+    profiles:
+      - integration
+
+networks:
+  mcp-test-network:
+    driver: bridge
+    name: mcp-test-network
