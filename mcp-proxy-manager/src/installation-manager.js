@@ -182,7 +182,7 @@ class InstallationManager {
   detectCorruption(content, filePath) {
     // Pattern 1: Truncated function calls (like the googleapis issue)
     if (/getCapabilities\(paramsOrCallback,\s*opti\s*$/.test(content)) {
-      console.warn(`🔍 Detected googleapis truncation pattern in ${filePath}`);
+      console.warn(`Detected googleapis truncation pattern in ${filePath}`);
       return true;
     }
     
@@ -192,7 +192,7 @@ class InstallationManager {
       for (const line of lastLines) {
         if (line.trim() && !line.trim().endsWith(';') && !line.trim().endsWith('}') && !line.trim().endsWith(',')) {
           if (line.length > 20 && !line.includes('//') && !line.includes('/*')) {
-            console.warn(`🔍 Detected incomplete line in ${filePath}: "${line.trim()}"`);
+            console.warn(`Detected incomplete line in ${filePath}: "${line.trim()}"`);
             return true;
           }
         }
@@ -201,7 +201,7 @@ class InstallationManager {
     
     // Pattern 3: Binary data in JS files
     if (/[\\x00-\\x08\\x0E-\\x1F\\x7F-\\xFF]/.test(content.slice(0, 1000))) {
-      console.warn(`🔍 Detected binary data in JS file ${filePath}`);
+      console.warn(`Detected binary data in JS file ${filePath}`);
       return true;
     }
     
@@ -253,7 +253,7 @@ class InstallationManager {
     
     // Check memory and concurrent installs
     if (!this.isSafeToInstall()) {
-      console.log(`⏳ Queuing installation for ${serverId} - resource constraints`);
+      console.log(`Queuing installation for ${serverId} - resource constraints`);
       return new Promise((resolve) => {
         this.installQueue.push({ serverId, packageInfo, resolve });
         this.processQueue(); // Try to process queue

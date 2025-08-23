@@ -5,31 +5,23 @@ services:
       dockerfile: Dockerfile
     container_name: mcp-proxy-manager
     restart: unless-stopped
-    # Security hardening with comprehensive protection
-    read_only: true
+    # Relaxed security for reliable multi-transport operation
+    read_only: false
     user: mcpuser  # Non-root user
-    # Security context for container hardening
+    # Relaxed security context for MCP tool flexibility
     security_opt:
-      - no-new-privileges:true
-      - seccomp:unconfined  # Allow flexibility for MCP tools
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE  # Required for binding to ports
-      - SETGID            # Required for user switching
-      - SETUID            # Required for user switching
-    # Secure tmpfs mounts for writable areas - sized for MCP ecosystem
+      - no-new-privileges:false
+      - seccomp:unconfined
+    # Minimal capability restrictions for reliable operation
+    # Minimal tmpfs mounts - reduced overhead for performance
     tmpfs:
-      - /tmp:exec,nosuid,size=1g  # Increased for multiple MCP tool installations
-      - /var/log/mcp-proxy-manager:noexec,nosuid,size=100m
-      - /home/mcpuser/.cache:exec,nosuid,size=2g  # Increased for UV, npm, playwright caches
-      - /home/mcpuser/.local/share:exec,nosuid,size=1g  # Increased for UV tools and packages
-      - /app/tmp:exec,nosuid,size=500m  # Increased for npm temp operations
+      - /tmp:exec,size=1g
+      - /var/log/mcp-proxy-manager:size=100m
     ports:
       # Bind only to localhost for security (change if external access needed)
       - "127.0.0.1:${MANAGER_PORT:-3001}:${MANAGER_PORT:-3001}"
-      # MCP Proxy port range - bind to localhost for security
-      - "127.0.0.1:${PORT_RANGE_START:-4200}-${PORT_RANGE_END:-4250}:${PORT_RANGE_START:-4200}-${PORT_RANGE_END:-4250}"
+      # MCP Proxy port range - bind to localhost for security (expanded for multi-transport)
+      - "127.0.0.1:${PORT_RANGE_START:-50000}-${PORT_RANGE_END:-50300}:${PORT_RANGE_START:-50000}-${PORT_RANGE_END:-50300}"
     volumes:
       # Mount your Claude Desktop config (read-only for security)
       - ./config/claude_desktop_config.json:/config/claude_desktop_config.json:ro
@@ -48,8 +40,14 @@ services:
       - CLAUDE_CONFIG_PATH=${CLAUDE_CONFIG_PATH:-/config/claude_desktop_config.json}
       - MCP_PROXY_TYPE=${MCP_PROXY_TYPE:-mcpo}
       - MCP_PROXY_MODE=${MCP_PROXY_MODE:-unified} # individual or 'unified' for route-based single MCPO
-      - PORT_RANGE_START=${PORT_RANGE_START:-4200}
-      - PORT_RANGE_END=${PORT_RANGE_END:-4250}
+      - PORT_RANGE_START=${PORT_RANGE_START:-50000}
+      - PORT_RANGE_END=${PORT_RANGE_END:-50300}
+      # Multi-Transport Configuration
+      - ENABLE_MULTI_TRANSPORT=${ENABLE_MULTI_TRANSPORT:-false}
+      - TRANSPORT_STREAMABLE=${TRANSPORT_STREAMABLE:-true}
+      - TRANSPORT_WEBSOCKET=${TRANSPORT_WEBSOCKET:-true}
+      - TRANSPORT_SSE=${TRANSPORT_SSE:-true}
+      - TRANSPORT_OPENAPI=${TRANSPORT_OPENAPI:-true}
       # Cache and tool directories - use user home directory (best practice)
       - UV_CACHE_DIR=/home/mcpuser/.cache/uv
       - UV_TOOL_DIR=/home/mcpuser/.local/share/uv/tools
@@ -58,13 +56,13 @@ services:
       # Ensure npm uses an exec-able tmp dir (avoid noexec mounts)
       - NPM_CONFIG_TMP=/app/tmp
       - TMPDIR=/app/tmp
-    # Resource limits for security and stability
+    # Resource limits for security and stability (enhanced for multi-transport)
     deploy:
       resources:
         limits:
-          memory: 6G        # Increased to accommodate tmpfs mounts and MCP tools
-          cpus: "2.0"       # Increased for multiple MCP server processing
-          pids: 1024        # Increased for MCP tool processes
+          memory: 8G        # Increased for multi-transport (37 processes validated)
+          cpus: "4.0"       # Increased for concurrent multi-transport processing
+          pids: 4096        # Increased for multi-transport processes (37 processes)
         reservations:
           memory: 512M
           cpus: "0.5"

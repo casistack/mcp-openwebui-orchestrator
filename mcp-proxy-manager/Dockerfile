@@ -61,8 +61,7 @@ RUN npm install -g playwright \
     && playwright install chromium firefox webkit \
     && playwright install-deps
 
-# Install Supergateway globally for alternative proxy option
-RUN npm install -g supergateway
+# Note: SuperGateway will be installed via npx on-demand to avoid dependency issues
 
 # Copy package files and install dependencies
 COPY package*.json ./
@@ -112,9 +111,7 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /root/.local/bin/uv /usr/local/bin/
 COPY --from=builder /root/.local/bin/uvx /usr/local/bin/
 COPY --from=builder /usr/local/lib/node_modules/playwright /usr/local/lib/node_modules/playwright
-COPY --from=builder /usr/local/lib/node_modules/supergateway /usr/local/lib/node_modules/supergateway
 COPY --from=builder /usr/local/bin/playwright /usr/local/bin/
-COPY --from=builder /usr/local/bin/supergateway /usr/local/bin/
 
 # Create non-root user with security hardening
 RUN groupadd -r mcpgroup && \
@@ -151,8 +148,8 @@ ENV NODE_ENV=production
 ENV MANAGER_PORT=3001
 ENV CLAUDE_CONFIG_PATH=/config/claude_desktop_config.json
 ENV MCP_PROXY_TYPE=mcpo
-ENV PORT_RANGE_START=4200
-ENV PORT_RANGE_END=4300
+ENV PORT_RANGE_START=50000
+ENV PORT_RANGE_END=50300
 ENV PATH="/home/mcpuser/.local/bin:$PATH"
 # Cache directories - use user home directory (best practice)
 ENV UV_CACHE_DIR=/home/mcpuser/.cache/uv
@@ -162,9 +159,9 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/home/mcpuser/.cache/playwright
 ENV NPM_CONFIG_TMP=/app/tmp
 ENV TMPDIR=/app/tmp
 
-# Expose ports
+# Expose ports (SIGNIFICANTLY expanded for multi-transport)
 EXPOSE 3001
-EXPOSE 4200-4300
+EXPOSE 50000-50300
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

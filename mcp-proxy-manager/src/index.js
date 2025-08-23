@@ -21,12 +21,15 @@ class MCPProxyManagerApp {
     
     this.configPath = process.env.CLAUDE_CONFIG_PATH || '/config/claude_desktop_config.json';
     this.proxyType = process.env.MCP_PROXY_TYPE || 'mcpo'; // 'mcpo' or 'supergateway'
-    this.portRangeStart = parseInt(process.env.PORT_RANGE_START) || 4000;
-    this.portRangeEnd = parseInt(process.env.PORT_RANGE_END) || 4100;
+    this.portRangeStart = parseInt(process.env.PORT_RANGE_START) || 4200;
+    this.portRangeEnd = parseInt(process.env.PORT_RANGE_END) || 4400;
     
     this.modeDetector = new ModeDetector();
     console.log(`MCP Proxy Mode: ${this.modeDetector.getMode()}`);
     console.log(`Mode: ${this.modeDetector.getModeDescription()}`);
+    
+    // Validate multi-transport configuration
+    this.validateMultiTransportConfig();
     
     this.configParser = new ConfigParser(this.configPath);
     this.portManager = new PortManager(this.portRangeStart, this.portRangeEnd);
@@ -35,13 +38,22 @@ class MCPProxyManagerApp {
     
     // Mode-specific managers
     if (this.modeDetector.isIndividualMode()) {
-      // Original individual proxy approach
+      // Individual mode: OpenAPI only (resource efficient)
+      console.log('📡 Individual Mode: OpenAPI only');
       this.proxyManager = new ProxyManager(this.portManager, this.proxyType);
       this.healthMonitor = new HealthMonitor(this.proxyManager, this.configParser);
       this.currentServers = new Map();
     } else {
-      // New unified MCPO approach
-      this.unifiedProxyManager = new UnifiedProxyManager(this.configPath, this.portManager);
+      // Unified mode with optional multi-transport
+      const multiTransportEnabled = process.env.ENABLE_MULTI_TRANSPORT === 'true';
+      if (multiTransportEnabled) {
+        console.log('Unified Mode with Multi-Transport');
+        const MultiTransportUnifiedProxyManager = require('./multi-transport-unified-proxy-manager');
+        this.unifiedProxyManager = new MultiTransportUnifiedProxyManager(this.configPath, this.portManager);
+      } else {
+        console.log('📡 Unified Mode: OpenAPI only');
+        this.unifiedProxyManager = new UnifiedProxyManager(this.configPath, this.portManager);
+      }
     }
     
     this.configWatcher = null;
@@ -49,6 +61,25 @@ class MCPProxyManagerApp {
     this.validateSecurityConfiguration();
     this.setupExpress();
     this.setupGracefulShutdown();
+  }
+
+  /**
+   * Validate multi-transport configuration
+   */
+  validateMultiTransportConfig() {
+    const multiTransportEnabled = process.env.ENABLE_MULTI_TRANSPORT === 'true';
+    const isIndividualMode = this.modeDetector.isIndividualMode();
+    
+    if (multiTransportEnabled && isIndividualMode) {
+      console.error('CONFIGURATION ERROR: Multi-transport is only available in unified mode');
+      console.error('   Set MCP_PROXY_MODE=unified to use multi-transport features');
+      console.error('   Or set ENABLE_MULTI_TRANSPORT=false to use individual mode');
+      throw new Error('Multi-transport requires unified mode');
+    }
+    
+    if (multiTransportEnabled) {
+      console.log('Multi-transport enabled in unified mode');
+    }
   }
 
   /**
@@ -380,7 +411,7 @@ class MCPProxyManagerApp {
       
       // Extra delay after mass removals before starting new servers
       if (serversToRemove.length > 3) {
-        console.log(`⏳ Waiting additional 5 seconds after stopping ${serversToRemove.length} servers...`);
+        console.log(`Waiting additional 5 seconds after stopping ${serversToRemove.length} servers...`);
         await this.sleep(5000);
       }
     }
@@ -419,7 +450,7 @@ class MCPProxyManagerApp {
         // Check if server config changed (including env vars)
         const configChanged = JSON.stringify(existingServer) !== JSON.stringify(enhancedServer);
         if (configChanged) {
-          console.log(`🔄 Updating server: ${server.id}`);
+          console.log(`Updating server: ${server.id}`);
           await this.proxyManager.stopProxy(server.id);
           const started = await this.proxyManager.startProxy(enhancedServer);
           if (started) {
@@ -447,14 +478,14 @@ class MCPProxyManagerApp {
     });
 
     this.configWatcher.on('change', async () => {
-      console.log('📝 Configuration file changed, reloading...');
+      console.log('Configuration file changed, reloading...');
       
       if (this.modeDetector.isIndividualMode()) {
         // Individual mode: reconcile servers
         await this.loadAndStartProxies();
       } else {
         // Unified mode: restart MCPO (hot-reload should handle this, but restart as backup)
-        console.log('🔄 Unified mode: MCPO hot-reload should handle config changes automatically');
+        console.log('Unified mode: MCPO hot-reload should handle config changes automatically');
         // Note: MCPO --hot-reload should handle this automatically
       }
     });
@@ -561,12 +592,13 @@ class MCPProxyManagerApp {
         fallbackStats
       });
     } else {
-      // Unified mode: simplified status
+      // Unified mode: with or without multi-transport
       const unifiedStatus = this.unifiedProxyManager.getStatus();
       const serverRoutes = this.unifiedProxyManager.getServerRoutes();
       
-      res.json({
-        mode: 'unified',
+      const isMultiTransport = this.unifiedProxyManager.getTransportStatus !== undefined;
+      const response = {
+        mode: isMultiTransport ? 'unified-multi-transport' : 'unified',
         status: 'running',
         timestamp: new Date(),
         unifiedProxy: unifiedStatus,
@@ -580,8 +612,16 @@ class MCPProxyManagerApp {
         },
         ports: portStats,
         config: configStats,
-        proxyType: 'unified-mcpo'
-      });
+        proxyType: isMultiTransport ? 'unified-multi-transport' : 'unified-mcpo'
+      };
+      
+      // Add transport status for multi-transport mode
+      if (isMultiTransport) {
+        response.transports = this.unifiedProxyManager.getTransportStatus();
+        response.enabledTransports = this.unifiedProxyManager.getEnabledTransports();
+      }
+      
+      res.json(response);
     }
   }
 

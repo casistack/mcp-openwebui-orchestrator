@@ -21,7 +21,7 @@ class ContainerEnvironmentManager {
       // Create directory if it doesn't exist
       if (!fs.existsSync(this.globalEnvDir)) {
         fs.mkdirSync(this.globalEnvDir, { recursive: true, mode: 0o755 });
-        console.log(`📁 Created global environment directory: ${this.globalEnvDir}`);
+        console.log(`Created global environment directory: ${this.globalEnvDir}`);
       }
       
       // Create export script that can be sourced

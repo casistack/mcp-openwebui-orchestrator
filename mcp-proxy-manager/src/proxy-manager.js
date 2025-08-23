@@ -8,14 +8,14 @@ class ProxyManager {
   constructor(portManager, defaultProxyType = "mcpo") {
     this.portManager = portManager;
     this.defaultProxyType = defaultProxyType; // 'mcpo' or 'mcp-bridge'
-    this.runningProxies = new Map(); // serverId -> proxy process info
-    this.healthCheckInterval = 30000; // 30 seconds
-    this.fallbackAttempts = new Map(); // serverId -> { attempts: Set<proxyType>, lastAttempt: timestamp, totalAttempts: number }
-    this.maxRetryAttempts = 3; // Maximum total retry attempts per server
-    this.portReuseDelay = 10000; // 10 seconds delay before port reuse
-    this.serverErrors = new Map(); // serverId -> { lastError: string, errorType: string, timestamp: Date }
-    this.installationManager = new InstallationManager(); // NPM cache corruption prevention
-    this.mcpBridgeConfigDir = '/app/tmp/mcp-bridge-configs'; // Base directory for MCP-Bridge configs
+    this.runningProxies = new Map();
+    this.healthCheckInterval = 30000; 
+    this.fallbackAttempts = new Map();
+    this.maxRetryAttempts = 3; 
+    this.portReuseDelay = 10000; 
+    this.serverErrors = new Map(); 
+    this.installationManager = new InstallationManager(); 
+    this.mcpBridgeConfigDir = '/app/tmp/mcp-bridge-configs'; 
     
     // Allowed commands for security (whitelist approach)
     this.allowedCommands = new Set([
@@ -31,14 +31,9 @@ class ProxyManager {
     ]);
   }
 
-  /**
-   * Record error details for a server
-   * @param {string} serverId - Server ID
-   * @param {string} error - Error message
-   * @param {string} errorType - Type of error (auth, connection, dependency, etc.)
-   */
+
   recordError(serverId, error, errorType = 'unknown') {
-    console.log(`🔍 Recording error for ${serverId}: [${errorType}] ${error}`);
+    console.log(`Recording error for ${serverId}: [${errorType}] ${error}`);
     this.serverErrors.set(serverId, {
       lastError: error,
       errorType,
@@ -46,19 +41,12 @@ class ProxyManager {
     });
   }
 
-  /**
-   * Get error details for a server
-   * @param {string} serverId - Server ID
-   * @returns {Object|null} - Error details or null
-   */
+
   getServerError(serverId) {
     return this.serverErrors.get(serverId) || null;
   }
 
-  /**
-   * Clear error details for a server (when it becomes healthy)
-   * @param {string} serverId - Server ID
-   */
+
   clearServerError(serverId) {
     if (this.serverErrors.has(serverId)) {
       console.log(`Clearing error for ${serverId} - server is now healthy`);
@@ -66,11 +54,7 @@ class ProxyManager {
     }
   }
 
-  /**
-   * Validate command for security (whitelist approach)
-   * @param {string} command - Command to validate
-   * @returns {string|null} - Validated command or null if invalid
-   */
+
   validateCommand(command) {
     if (typeof command !== 'string') {
       console.error(`Command validation failed: not a string`);
@@ -94,11 +78,7 @@ class ProxyManager {
     return command;
   }
 
-  /**
-   * Validate and sanitize arguments array
-   * @param {Array} args - Arguments array to validate
-   * @returns {Array} - Sanitized arguments array
-   */
+
   validateArgs(args) {
     if (!Array.isArray(args)) {
       throw new Error('Arguments must be an array');
@@ -136,11 +116,7 @@ class ProxyManager {
     return sanitizedArgs;
   }
 
-  /**
-   * Dynamically detect and categorize errors from process output
-   * @param {string} serverId - Server ID
-   * @param {string} output - Process output
-   */
+
   detectAndRecordErrors(serverId, output) {
     // Skip informational messages that aren't errors
     if (this.isInformationalMessage(output)) {
@@ -158,11 +134,6 @@ class ProxyManager {
     this.recordError(serverId, errorMessage, errorType);
   }
 
-  /**
-   * Check if output is informational and not an error
-   * @param {string} output - Process output
-   * @returns {boolean} - True if informational
-   */
   isInformationalMessage(output) {
     const informationalPatterns = [
       /^INFO:/,
@@ -179,11 +150,7 @@ class ProxyManager {
     return informationalPatterns.some(pattern => pattern.test(output));
   }
 
-  /**
-   * Extract the most relevant error message from process output
-   * @param {string} output - Process output
-   * @returns {string|null} - Extracted error message
-   */
+
   extractErrorMessage(output) {
     // Remove common prefixes that add noise
     const cleanOutput = output
@@ -349,7 +316,7 @@ class ProxyManager {
       const config = this.generateMCPBridgeConfig(serverConfig, port, env);
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
-      console.log(`📁 Created MCP-Bridge config for ${serverConfig.id} at ${configPath}`);
+      console.log(`Created MCP-Bridge config for ${serverConfig.id} at ${configPath}`);
       return workingDir;
     } catch (error) {
       console.error(`Failed to create MCP-Bridge config for ${serverConfig.id}: ${error.message}`);
@@ -408,10 +375,10 @@ class ProxyManager {
       UV_CACHE_DIR: '/home/mcpuser/.cache/uv',
       // Configure extended timeouts for SSE persistent connections
       // HTTPX defaults to 5s read timeout which breaks SSE streams
-      MCP_SSE_READ_TIMEOUT: '300',  // 5 minutes for SSE read timeout
-      MCP_SSE_CONNECT_TIMEOUT: '30', // 30s for initial connection
-      HTTPX_TIMEOUT: '300',         // Try generic httpx timeout env var
-      UVICORN_TIMEOUT_KEEP_ALIVE: '600' // Extended keep-alive for persistent connections
+      MCP_SSE_READ_TIMEOUT: '300',
+      MCP_SSE_CONNECT_TIMEOUT: '30',
+      HTTPX_TIMEOUT: '300',
+      UVICORN_TIMEOUT_KEEP_ALIVE: '600'
     };
 
     console.log(`Spawning: ${command} ${args.join(' ')}`);
@@ -425,12 +392,7 @@ class ProxyManager {
     return proxyProcess;
   }
 
-  /**
-   * Spawn MCPO proxy for streamable-http servers  
-   * @param {Object} serverConfig - Streamable-HTTP server configuration
-   * @param {number} port - Allocated port
-   * @returns {Promise<import('child_process').ChildProcess|null>} - Spawned process or null
-   */
+
   async spawnStreamableHttpProxy(serverConfig, port) {
     console.log(`Starting Streamable-HTTP-to-OpenAPI proxy for ${serverConfig.id} on port ${port}`);
     
@@ -459,10 +421,10 @@ class ProxyManager {
       UV_TOOL_DIR: '/home/mcpuser/.local/share/uv/tools',
       UV_CACHE_DIR: '/home/mcpuser/.cache/uv',
       // Configure extended timeouts for streamable-http persistent connections
-      MCP_HTTP_READ_TIMEOUT: '300',  // 5 minutes for HTTP read timeout
-      MCP_HTTP_CONNECT_TIMEOUT: '30', // 30s for initial connection
-      HTTPX_TIMEOUT: '300',         // Try generic httpx timeout env var
-      UVICORN_TIMEOUT_KEEP_ALIVE: '600' // Extended keep-alive for persistent connections
+      MCP_HTTP_READ_TIMEOUT: '300',
+      MCP_HTTP_CONNECT_TIMEOUT: '30',
+      HTTPX_TIMEOUT: '300',
+      UVICORN_TIMEOUT_KEEP_ALIVE: '600'
     };
 
     console.log(`Spawning: ${command} ${args.join(' ')}`);
@@ -476,12 +438,7 @@ class ProxyManager {
     return proxyProcess;
   }
 
-  /**
-   * Start a proxy for an MCP server
-   * @param {Object} serverConfig - Server configuration
-   * @param {Object} options - Optional options (forceProxyType, allowFallback, enableSSEProxy)
-   * @returns {Promise<boolean>} - True if started successfully
-   */
+
   async startProxy(serverConfig, options = {}) {
     try {
       // Handle SSE servers - automatically proxy them for OpenWebUI compatibility
@@ -602,7 +559,7 @@ class ProxyManager {
         const isPersistentTransport = isSSEServer || isStreamableHttpServer;
         const initDelay = isPersistentTransport ? 15000 : 8000; // 15s for persistent transports, 8s for stdio
         const transportType = isSSEServer ? 'SSE' : isStreamableHttpServer ? 'Streamable-HTTP' : 'stdio';
-        console.log(`⏳ Waiting ${initDelay}ms for ${transportType} server initialization...`);
+        console.log(`Waiting ${initDelay}ms for ${transportType} server initialization...`);
         await this.sleep(initDelay);
 
         // Perform health check
@@ -694,7 +651,7 @@ class ProxyManager {
     // Pre-spawn cache validation and cleanup
     const packageName = this.extractPackageName(serverConfig);
     if (packageName) {
-      console.log(`🔍 Validating cache for ${serverConfig.id} (${packageName})`);
+      console.log(`Validating cache for ${serverConfig.id} (${packageName})`);
       
       try {
         const isCorrupted = await this.installationManager.validateNpmCache(packageName);
@@ -858,11 +815,7 @@ class ProxyManager {
     return childProcess;
   }
 
-  /**
-   * Stop a proxy
-   * @param {string} serverId - Server ID
-   * @returns {Promise<boolean>} - True if stopped successfully
-   */
+ 
   async stopProxy(serverId) {
     const proxyInfo = this.runningProxies.get(serverId);
     if (!proxyInfo) {
@@ -929,11 +882,7 @@ class ProxyManager {
     return stats;
   }
 
-  /**
-   * Restart a proxy
-   * @param {string} serverId - Server ID
-   * @returns {Promise<boolean>} - True if restarted successfully
-   */
+
   async restartProxy(serverId) {
     const proxyInfo = this.runningProxies.get(serverId);
     if (!proxyInfo) {
@@ -953,12 +902,6 @@ class ProxyManager {
     return success;
   }
 
-  /**
-   * Handle process exit
-   * @param {string} serverId - Server ID
-   * @param {number} code - Exit code
-   * @param {string} signal - Exit signal
-   */
   async handleProcessExit(serverId, code) {
     const proxyInfo = this.runningProxies.get(serverId);
     if (!proxyInfo) return;
@@ -990,11 +933,7 @@ class ProxyManager {
     }
   }
 
-  /**
-   * Perform health check on a proxy
-   * @param {string} serverId - Server ID
-   * @returns {Promise<{isHealthy: boolean, isAuthError: boolean, statusCode: number|null}>} - Health check result
-   */
+ 
   async healthCheck(serverId) {
     const proxyInfo = this.runningProxies.get(serverId);
     if (!proxyInfo) return { isHealthy: false, isAuthError: false, statusCode: null };
@@ -1058,10 +997,7 @@ class ProxyManager {
     }
   }
 
-  /**
-   * Get status of all proxies
-   * @returns {Array} - Array of proxy status objects
-   */
+
   getProxyStatuses() {
     const statuses = [];
 
@@ -1121,10 +1057,7 @@ class ProxyManager {
     );
   }
 
-  /**
-   * Stop all proxies
-   * @returns {Promise<boolean>} - True if all stopped successfully
-   */
+
   async stopAllProxies() {
     console.log("Stopping all proxies...");
     const serverIds = Array.from(this.runningProxies.keys());
@@ -1135,11 +1068,6 @@ class ProxyManager {
     return results.every((result) => result === true);
   }
 
-  /**
-   * Extract package name from server configuration for cache validation
-   * @param {Object} serverConfig - Server configuration
-   * @returns {string|null} - Package name or null
-   */
   extractPackageName(serverConfig) {
     if (!serverConfig.args || serverConfig.args.length === 0) return null;
 
@@ -1175,19 +1103,11 @@ class ProxyManager {
     return null;
   }
 
-  /**
-   * Get installation manager statistics
-   * @returns {Object} Installation stats
-   */
+
   getInstallationStats() {
     return this.installationManager.getStats();
   }
 
-  /**
-   * Force clean NPM cache for a specific server
-   * @param {string} serverId - Server ID
-   * @returns {Promise<boolean>} - Success status
-   */
   async cleanServerCache(serverId) {
     const proxyInfo = this.runningProxies.get(serverId);
     if (!proxyInfo) return false;
@@ -1223,11 +1143,7 @@ class ProxyManager {
     console.log('Proxy manager cleanup complete');
   }
 
-  /**
-   * Utility function to sleep
-   * @param {number} ms - Milliseconds to sleep
-   * @returns {Promise} - Promise that resolves after timeout
-   */
+
   sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }

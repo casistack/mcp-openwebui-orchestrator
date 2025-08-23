@@ -44,7 +44,7 @@ class EnvironmentManager {
     try {
       if (!fs.existsSync(this.envDirectory)) {
         fs.mkdirSync(this.envDirectory, { recursive: true, mode: 0o700 });
-        console.log(`📁 Created environment directory: ${this.envDirectory}`);
+        console.log(`Created environment directory: ${this.envDirectory}`);
       }
     } catch (error) {
       console.error(`Failed to create environment directory: ${error.message}`);

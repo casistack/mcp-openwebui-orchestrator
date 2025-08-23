@@ -27,7 +27,7 @@ class UnifiedProxyManager {
   async start() {
     try {
       if (this.mcpoProcess) {
-        console.log('🔄 Unified MCPO already running');
+        console.log('Unified MCPO already running');
         return true;
       }
 
@@ -39,7 +39,7 @@ class UnifiedProxyManager {
       }
 
       console.log(`Starting unified MCPO on port ${this.mcpoPort}`);
-      console.log(`📁 Config: ${this.configPath}`);
+      console.log(`Config: ${this.configPath}`);
 
       // Spawn unified MCPO process
       this.mcpoProcess = spawn('uvx', [
@@ -122,7 +122,7 @@ class UnifiedProxyManager {
    * @returns {Promise<boolean>} - Success status
    */
   async restart() {
-    console.log('🔄 Restarting unified MCPO...');
+    console.log('Restarting unified MCPO...');
     this.restartCount++;
     
     await this.stop();
@@ -235,7 +235,7 @@ class UnifiedProxyManager {
       this.isHealthy = false;
       
       if (code !== 0 && !signal) {
-        console.log('🔄 Unified MCPO crashed, attempting restart...');
+        console.log('Unified MCPO crashed, attempting restart...');
         setTimeout(() => this.restart(), 5000);
       }
     });
@@ -251,7 +251,7 @@ class UnifiedProxyManager {
     const checkInterval = 1000; // 1 second
     let waited = 0;
 
-    console.log('⏳ Waiting for unified MCPO to start...');
+    console.log('Waiting for unified MCPO to start...');
 
     while (waited < maxWait) {
       if (await this.checkHealth()) {

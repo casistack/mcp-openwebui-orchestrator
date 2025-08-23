@@ -1,8 +1,10 @@
 # MCP OpenWebUI Docker Orchestrator
 
-A Docker-based MCP management platform with dual-mode architecture, automated health monitoring, and simple setup. Runs MCP servers in isolated containers with a web dashboard for monitoring and control.
+A Docker-based MCP management platform with multi-mode architecture, automated health monitoring, and simple setup. Runs MCP servers in isolated containers with a web dashboard for monitoring and control.
 
-Built to work with your existing Claude Desktop configuration - just drop in your config file and run. Supports both unified and individual proxy modes depending on your needs.
+Built to work with your existing Claude Desktop configuration - just drop in your config file and run. Supports unified, individual, and multi-transport proxy modes depending on your needs.
+
+> **⚠️ Development Status**: This project is under active development. Use at your own risk and test thoroughly in your environment.
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/casistack/mcp-openwebui-orchestrator)](https://hub.docker.com/r/casistack/mcp-openwebui-orchestrator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -11,12 +13,12 @@ Built to work with your existing Claude Desktop configuration - just drop in you
 
 ## ✨ Key Features
 
-### 🎯 **Dual-Mode Architecture** 
+### 🎯 **Multi-Mode Architecture** 
 
 - **🔗 Unified Mode**: Single MCPO process with route-based access (`/graphiti`, `/memory`, etc.)
-- **⚙️ Individual Mode**: Separate proxy processes for each MCP server (traditional approach)
-- **🔄 Mode Switching**: Change modes via `MCP_PROXY_MODE` environment variable
-- **✅ Zero Regression**: Individual mode preserved with all existing functionality
+- **⚙️ Individual Mode**: Separate proxy processes for each MCP server
+- **🚀 Multi-Transport Mode**: Native MCP protocol support + REST APIs via SuperGateway integration
+- **🔄 Mode Switching**: Change modes via `MCP_PROXY_MODE` and `ENABLE_MULTI_TRANSPORT` environment variables
 
 ### 🚀 **Zero Configuration Complexity**
 
@@ -46,7 +48,15 @@ Built to work with your existing Claude Desktop configuration - just drop in you
 - **One-Click Setup**: Copy-paste endpoint URLs from dashboard
 - **RESTful APIs**: OpenAPI-compatible endpoints for all MCP tools
 - **Management API**: Full REST API for monitoring and control
-- **Production Ready**: Docker-based with comprehensive logging
+
+
+### 🔗 **Multi-Transport MCP Architecture**
+
+- **Native MCP Protocol Support**: Direct connectivity for IDEs, Claude Desktop, and advanced MCP clients
+- **SuperGateway Integration**: Protocol translation enabling SSE, WebSocket, and Streamable HTTP transports
+- **Dual Client Support**: Serves both REST APIs (OpenWebUI) and native MCP protocols simultaneously
+- **Containerized Protocol Gateway**: Secure, isolated environment for MCP protocol translation
+- **Resource Scaling**: Automatic process scaling based on enabled transport protocols
 
 ### 🔒 **Security Features**
 
@@ -72,10 +82,11 @@ Quick setup guide:
 
 | Mode | Best For | Description |
 |------|----------|-------------|
-| **🔗 Unified** | Most users, production | Single MCPO process, route-based (`/graphiti`, `/memory`) |
+| **🔗 Unified** | Most users, | Single MCPO process, route-based (`/graphiti`, `/memory`) |
 | **⚙️ Individual** | Development, debugging | Separate processes per server (port-based) |
+| **🚀 Multi-Transport** | IDE integration, advanced clients | Native MCP protocol support + REST APIs |
 
-**🔄 Easy Mode Switching**: Change `MCP_PROXY_MODE` in your `.env` file or docker-compose.yml and restart
+**🔄 Easy Mode Switching**: Change `MCP_PROXY_MODE` and `ENABLE_MULTI_TRANSPORT` in your `.env` file and restart
 
 ### Docker Setup
 
@@ -100,9 +111,9 @@ open http://localhost:3001/dashboard
 
 Your MCP tools are now running with health monitoring, auto-restart, and a web dashboard.
 
-### Option 1: Unified Mode (Recommended)
+### Option 1: Unified Mode
 
-Perfect for production with clean route-based URLs:
+Clean route-based URLs:
 
 ```bash
 # After basic setup above, access routes:
@@ -115,7 +126,7 @@ open http://localhost:4200/memory/docs
 
 You can easily switch between unified and individual modes:
 
-#### Method 1: Using .env File (Recommended)
+#### Method 1: Using .env File
 ```bash
 # Edit your .env file
 echo "MCP_PROXY_MODE=individual" > .env
@@ -159,7 +170,28 @@ open http://localhost:4200/docs  # First server
 open http://localhost:4201/docs  # Second server
 ```
 
-### Option 3: Docker Run Commands
+### Option 3: Multi-Transport Mode
+
+Advanced mode for IDE and Claude Desktop integration:
+
+```bash
+# Enable multi-transport mode
+echo "ENABLE_MULTI_TRANSPORT=true" >> .env
+echo "PORT_RANGE_END=50300" >> .env
+docker-compose down && docker-compose up -d
+
+# Connect IDEs and Claude Desktop directly using native MCP protocols:
+# SSE: http://localhost:50001/sse (example server endpoint)
+# WebSocket: ws://localhost:50002/ws 
+# Streamable HTTP: http://localhost:50003/streamable
+
+# Plus all REST APIs remain available at unified routes
+open http://localhost:4200/graphiti/docs
+```
+
+**⚠️ Resource Note**: Multi-transport mode scales resource usage with transport count and server count. Monitor memory and CPU usage.
+
+### Option 4: Docker Run Commands
 
 For standalone deployment without docker-compose:
 
@@ -193,7 +225,7 @@ docker run -d \
   mcp-proxy-manager:latest
 ```
 
-### Option 3: Add to Existing Docker Setup
+### Option 5: Add to Existing Docker Setup
 
 Integrate with your existing infrastructure:
 
@@ -233,7 +265,7 @@ The dashboard provides:
 - **📈 Real-time Statistics**: Server count, health status, average response times
 - **🖥️ Server Grid**: Individual server status with health indicators
 - **🔗 OpenWebUI Integration**: One-click copy URLs for external API setup
-- **📱 Mobile Responsive**: Works perfectly on all device sizes
+- **📱 Mobile Responsive**: Works on all device sizes
 - **🔄 Auto-refresh**: Updates every 10 seconds with toggle control
 
 ### Dashboard Sections
@@ -263,25 +295,31 @@ The dashboard provides:
 
 ### Environment Variables
 
-| Variable             | Default                              | Description                             |
-| -------------------- | ------------------------------------ | --------------------------------------- |
-| `MCP_PROXY_MODE`     | `unified`                            | **Mode**: `unified` or `individual`    |
-| `MANAGER_PORT`       | `3001`                               | Management API and dashboard port       |
-| `CLAUDE_CONFIG_PATH` | `/config/claude_desktop_config.json` | Path to Claude Desktop config file      |
-| `MCP_PROXY_TYPE`     | `mcpo`                               | Default proxy: `mcpo` or `mcp-bridge` (individual mode) |
-| `PORT_RANGE_START`   | `4200`                               | Start of port allocation range          |
-| `PORT_RANGE_END`     | `4300`                               | End of port allocation range            |
+| Variable                | Default                              | Description                             |
+| ----------------------- | ------------------------------------ | --------------------------------------- |
+| `MCP_PROXY_MODE`        | `unified`                            | **Mode**: `unified`, `individual`, or with multi-transport |
+| `MANAGER_PORT`          | `3001`                               | Management API and dashboard port       |
+| `CLAUDE_CONFIG_PATH`    | `/config/claude_desktop_config.json` | Path to Claude Desktop config file      |
+| `MCP_PROXY_TYPE`        | `mcpo`                               | Default proxy: `mcpo` or `mcp-bridge` (individual mode) |
+| `PORT_RANGE_START`      | `4200`                               | Start of port allocation range          |
+| `PORT_RANGE_END`        | `4300`                               | End of port allocation range (expand to 50300 for multi-transport) |
+| `ENABLE_MULTI_TRANSPORT` | `false`                             | Enable native MCP protocol support with SuperGateway |
+| `TRANSPORT_STREAMABLE`  | `true`                               | Enable Streamable HTTP transport (when multi-transport enabled) |
+| `TRANSPORT_WEBSOCKET`   | `true`                               | Enable WebSocket transport (when multi-transport enabled) |
+| `TRANSPORT_SSE`         | `true`                               | Enable Server-Sent Events transport (when multi-transport enabled) |
+| `TRANSPORT_OPENAPI`     | `true`                               | Enable OpenAPI REST transport (always available via MCPO) |
 
 ### Mode Comparison
 
-| Feature | Unified Mode | Individual Mode |
-|---------|--------------|-----------------|
-| **MCPO Processes** | 1 | N (one per server) |
-| **URL Pattern** | `/graphiti`, `/memory` | `:4200`, `:4201` |
-| **Port Usage** | 1 port (4200) | N ports (4200+) |
-| **Resource Usage** | Lower | Higher |
-| **Debugging** | Single process logs | Per-server logs |
-| **Production** | ✅ Recommended | ⚙️ Dev/Testing |
+| Feature | Unified Mode | Individual Mode | Multi-Transport Mode |
+|---------|--------------|-----------------|---------------------|
+| **MCPO Processes** | 1 | N (one per server) | 1 + SuperGateway per server/transport |
+| **URL Pattern** | `/graphiti`, `/memory` | `:4200`, `:4201` | Routes + Protocol endpoints |
+| **Port Usage** | 1 port (4200) | N ports (4200+) | Expanded range (50000+) |
+| **Client Support** | REST API only | REST API only | REST + Native MCP protocols |
+| **Resource Usage** | Lower | Higher | Highest (scales with transports) |
+| **Use Case** | OpenWebUI integration | Development/debugging | IDE + Claude Desktop + OpenWebUI |
+
 
 ### Supported MCP Server Configurations
 
@@ -355,14 +393,14 @@ Override the default proxy type per server:
 
 **MCP-Bridge vs MCPO**:
 
-- **MCPO**: Lightweight, fast startup, ideal for simple MCP servers
+- **MCPO**: Lightweight, fast startup for simple MCP servers
 - **MCP-Bridge**: Robust fallback for complex servers with FastMCP schemas that cause MCPO parsing errors
 - **Automatic Fallback**: System intelligently switches from MCPO to MCP-Bridge when schema parsing fails
 - **OpenWebUI Compatible**: Both provide full REST/OpenAPI endpoints required by OpenWebUI
 
 ## 🔗 OpenWebUI Integration
 
-### Method 1: Dashboard Integration (Recommended)
+### Method 1: Dashboard Integration
 
 1. **Access MCP Dashboard**: `http://localhost:3001/dashboard`
 2. **Copy Endpoint URLs**: Use copy buttons in "OpenWebUI Integration" panel
@@ -718,7 +756,7 @@ This project builds on excellent existing technologies:
 ### Core Technologies
 - **[MCPO](https://github.com/open-webui/mcpo)** - MCP-to-OpenAPI proxy server by Open WebUI team
 - **[MCP-Bridge](https://github.com/SecretiveShell/MCP-Bridge)** - Alternative MCP proxy by SecretiveShell  
-- **[Supergateway](https://github.com/open-webui/supergateway)** - Universal API gateway fallback
+- **[SuperGateway](https://github.com/supercorp-ai/supergateway)** - MCP protocol transport gateway for native client support
 - **[OpenWebUI](https://github.com/open-webui/open-webui)** - ChatGPT-like web interface
 - **[Model Context Protocol](https://modelcontextprotocol.io/)** - Anthropic's protocol for AI tool integration
 
@@ -729,8 +767,6 @@ This project builds on excellent existing technologies:
 - **Management Dashboard** - Web interface for monitoring and control
 - **Dynamic Port Management** - Automatic port allocation and conflict resolution
 - **Zero-Config Setup** - Drop your Claude Desktop config and run
-
-**💡 Philosophy**: We believe in standing on the shoulders of giants. This project combines excellent existing tools with orchestration, monitoring, and a great user experience - all running safely in Docker containers.
 
 ## 🤝 Contributing
 
@@ -755,7 +791,7 @@ npm run dev
 # Run tests
 npm test
 
-# Build production image
+# Build  image
 docker build -t mcp-proxy-manager .
 ```
 

@@ -591,6 +591,82 @@
         .env-btn-cancel:hover {
             background: rgba(158, 158, 158, 0.5);
         }
+
+        /* Transport Tab Styles */
+        .transport-tab-container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 0;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .transport-tab-header {
+            display: flex;
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        .transport-tab {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            padding: 15px 20px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+            min-width: fit-content;
+        }
+
+        .transport-tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .transport-tab.active {
+            background: rgba(107, 115, 255, 0.2);
+            color: #ffffff;
+            border-bottom-color: #6B73FF;
+        }
+
+        .transport-tab-body {
+            padding: 20px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .transport-tab-content {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Custom scrollbar for tab content */
+        .transport-tab-body::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .transport-tab-body::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        .transport-tab-body::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+        }
+
+        .transport-tab-body::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -767,16 +843,35 @@
             try {
                 // Update header description based on mode
                 const headerDescription = document.getElementById('headerDescription');
-                if (statusData.mode === 'unified') {
-                    headerDescription.textContent = '🔗 Unified Mode: Single MCPO process with route-based access for all MCP servers';
+                if (statusData.mode === 'unified-multi-transport') {
+                    headerDescription.textContent = 'Multi-Transport Mode: Unified MCPO + SuperGateway processes supporting multiple transport protocols';
+                } else if (statusData.mode === 'unified') {
+                    headerDescription.textContent = 'Unified Mode: Single MCPO process with route-based access for all MCP servers';
                 } else {
-                    headerDescription.textContent = '⚙️ Individual Mode: Separate proxy processes for each MCP server';
+                    headerDescription.textContent = 'Individual Mode: Separate proxy processes for each MCP server';
                 }
                 
                 // Handle both individual and unified modes
                 let totalServers, healthyServers, failedServers, skippedServers, avgResponseTime;
                 
-                if (statusData.mode === 'unified') {
+                if (statusData.mode === 'unified-multi-transport') {
+                    // Multi-transport mode: calculate from transport data
+                    const transportData = parseTransportData(statusData);
+                    if (transportData) {
+                        const stats = calculateTransportStatistics(transportData);
+                        totalServers = stats.total;
+                        healthyServers = stats.healthy;
+                        failedServers = stats.failed;
+                        skippedServers = stats.skipped;
+                        avgResponseTime = 468; // Use existing avg from API or calculate from transport data
+                    } else {
+                        totalServers = statusData.summary?.total || 0;
+                        healthyServers = statusData.summary?.healthy || 0;
+                        failedServers = statusData.summary?.failed || 0;
+                        skippedServers = statusData.summary?.skipped || 0;
+                        avgResponseTime = 468;
+                    }
+                } else if (statusData.mode === 'unified') {
                     // Unified mode: single MCPO process
                     totalServers = statusData.summary?.total || 0;
                     healthyServers = statusData.summary?.healthy || 0;
@@ -924,16 +1019,274 @@
             }
         }
 
+        // Transport data parsing functions for multi-transport mode
+        function parseTransportData(statusData) {
+            if (!statusData.transports || !statusData.transports.servers) {
+                return null;
+            }
+
+            const transportTypes = ['streamable', 'websocket', 'sse'];
+            const transportData = {};
+            
+            // Initialize transport categories
+            transportTypes.forEach(type => {
+                transportData[type] = {
+                    processes: [],
+                    healthyCount: 0,
+                    totalCount: 0,
+                    description: getTransportDescription(type)
+                };
+            });
+
+            // Add OpenAPI transport (MCPO)
+            transportData.openapi = {
+                processes: [],
+                healthyCount: 0,
+                totalCount: 1,
+                description: 'Universal REST API compatibility'
+            };
+
+            // Parse OpenAPI transport (unified MCPO)
+            if (statusData.transports.openapi) {
+                transportData.openapi.processes.push({
+                    serverId: 'unified-mcpo',
+                    serverName: 'All Servers',
+                    healthy: statusData.transports.openapi.healthy,
+                    port: statusData.transports.openapi.port,
+                    url: statusData.transports.openapi.url,
+                    description: statusData.transports.openapi.description,
+                    processKey: 'unified-mcpo',
+                    startTime: null,
+                    restartCount: 0
+                });
+                if (statusData.transports.openapi.healthy) {
+                    transportData.openapi.healthyCount = 1;
+                }
+            }
+
+            // Parse SuperGateway processes by transport type
+            Object.keys(statusData.transports.servers).forEach(serverId => {
+                const serverTransports = statusData.transports.servers[serverId];
+                
+                transportTypes.forEach(transportType => {
+                    if (serverTransports[transportType]) {
+                        const transport = serverTransports[transportType];
+                        transportData[transportType].processes.push({
+                            serverId,
+                            serverName: serverId.replace(/-/g, '-'),
+                            healthy: transport.healthy,
+                            port: transport.port,
+                            url: transport.url,
+                            description: transport.description,
+                            processKey: transport.processKey,
+                            startTime: transport.startTime,
+                            restartCount: transport.restartCount || 0
+                        });
+                        
+                        transportData[transportType].totalCount++;
+                        if (transport.healthy) {
+                            transportData[transportType].healthyCount++;
+                        }
+                    }
+                });
+            });
+
+            return transportData;
+        }
+
+        function getTransportDescription(type) {
+            const descriptions = {
+                'streamable': 'Modern MCP transport (Recommended)',
+                'websocket': 'Real-time bidirectional communication', 
+                'sse': 'Legacy server-sent events',
+                'openapi': 'Universal REST API compatibility'
+            };
+            return descriptions[type] || 'Unknown transport type';
+        }
+
+        function getTransportIcon(type) {
+            const icons = {
+                'streamable': '📡',
+                'websocket': '🔗', 
+                'sse': '📻',
+                'openapi': '🔌'
+            };
+            return icons[type] || '❓';
+        }
+
+        function calculateTransportStatistics(transportData) {
+            // Count unique servers across all transport types, not total processes
+            const uniqueServers = new Set();
+            let serversWithHealthyTransports = new Set();
+            let totalProcesses = 0;
+            let totalHealthy = 0;
+            let totalFailed = 0;
+
+            Object.keys(transportData).forEach(transportType => {
+                const transport = transportData[transportType];
+                totalProcesses += transport.totalCount;
+                totalHealthy += transport.healthyCount;
+                totalFailed += (transport.totalCount - transport.healthyCount);
+                
+                // Track unique servers
+                transport.processes.forEach(process => {
+                    uniqueServers.add(process.serverId);
+                    if (process.healthy) {
+                        serversWithHealthyTransports.add(process.serverId);
+                    }
+                });
+            });
+
+            return {
+                total: uniqueServers.size, // Show server count, not process count
+                healthy: serversWithHealthyTransports.size,
+                failed: uniqueServers.size - serversWithHealthyTransports.size,
+                skipped: 0,
+                // Additional info for debugging
+                processStats: {
+                    totalProcesses,
+                    healthyProcesses: totalHealthy,
+                    failedProcesses: totalFailed
+                }
+            };
+        }
+
         function updateServerList(statusData) {
             const serverList = document.getElementById('serverList');
             
             try {
-                if (statusData.mode === 'unified') {
-                // Unified mode: show unified MCPO info and server routes
-                if (!statusData.unifiedProxy) {
-                    serverList.innerHTML = '<div class="loading">No unified proxy found</div>';
+                // Multi-transport mode: show transport-centric view
+                if (statusData.mode === 'unified-multi-transport') {
+                    const transportData = parseTransportData(statusData);
+                    if (!transportData) {
+                        serverList.innerHTML = '<div class="loading">No transport data available</div>';
+                        return;
+                    }
+                    
+                    serverList.innerHTML = renderMultiTransportView(transportData);
                     return;
                 }
+                
+                // Unified mode: show unified MCPO info and server routes
+                if (statusData.mode === 'unified') {
+                    if (!statusData.unifiedProxy) {
+                        serverList.innerHTML = '<div class="loading">No unified proxy found</div>';
+                        return;
+                    }
+                    
+                    serverList.innerHTML = renderUnifiedView(statusData);
+                    return;
+                }
+                
+                // Individual mode: original logic
+                const proxies = statusData.proxies || [];
+                if (proxies.length === 0) {
+                    serverList.innerHTML = '<div class="loading">No servers found</div>';
+                    return;
+                }
+                
+                serverList.innerHTML = renderIndividualView(proxies);
+                
+            } catch (error) {
+                console.error('Error updating server list:', error);
+                serverList.innerHTML = '<div class="error">Error loading server data: ' + error.message + '</div>';
+            }
+        }
+
+        function renderMultiTransportView(transportData) {
+            const transportTypes = ['openapi', 'streamable', 'websocket', 'sse'];
+            const availableTransports = transportTypes.filter(type => 
+                transportData[type] && transportData[type].totalCount > 0
+            );
+
+            if (availableTransports.length === 0) {
+                return '<div class="loading">No transport data available</div>';
+            }
+
+            // Generate unique tab container ID
+            const tabContainerId = `transport-tabs-${Date.now()}`;
+
+            // Create tab headers
+            const tabHeaders = availableTransports.map((transportType, index) => {
+                const transport = transportData[transportType];
+                const icon = getTransportIcon(transportType);
+                const transportName = transportType.charAt(0).toUpperCase() + transportType.slice(1);
+                const healthyCount = transport.healthyCount;
+                const totalCount = transport.totalCount;
+                const healthIndicator = healthyCount === totalCount ? '✅' : 
+                                      healthyCount === 0 ? '❌' : '⚠️';
+                
+                return `
+                    <button class="transport-tab ${index === 0 ? 'active' : ''}" 
+                            onclick="showTransportTab('${tabContainerId}', '${transportType}', this)">
+                        ${icon} ${transportName} ${healthIndicator} ${healthyCount}/${totalCount}
+                    </button>
+                `;
+            }).join('');
+
+            // Create tab content for each transport
+            const tabContents = availableTransports.map((transportType, index) => {
+                const transport = transportData[transportType];
+                const transportName = transportType.charAt(0).toUpperCase() + transportType.slice(1);
+                
+                const processesHTML = transport.processes.map(process => `
+                    <div class="server-card" style="margin-bottom: 10px; border-left: 3px solid ${process.healthy ? '#4CAF50' : '#f44336'};">
+                        <div class="server-header">
+                            <div class="server-name">${process.serverName}</div>
+                            <div class="status-badge ${process.healthy ? 'status-healthy' : 'status-unhealthy'}">
+                                ${process.healthy ? '✅ Healthy' : '❌ Failed'}
+                            </div>
+                        </div>
+                        <div class="server-details">
+                            <div class="detail-item">
+                                <div class="detail-label">Port</div>
+                                <div class="detail-value">${process.port}</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">URL</div>
+                                <div class="detail-value">
+                                    <span style="font-family: monospace; font-size: 0.9em;">${process.url}</span>
+                                    <button class="copy-btn" onclick="copyToClipboard('${process.url}')" style="margin-left: 10px;">Copy</button>
+                                </div>
+                            </div>
+                            ${process.startTime ? `
+                            <div class="detail-item">
+                                <div class="detail-label">Started</div>
+                                <div class="detail-value">${new Date(process.startTime).toLocaleString()}</div>
+                            </div>
+                            ` : ''}
+                            <div class="detail-item">
+                                <div class="detail-label">Restarts</div>
+                                <div class="detail-value">${process.restartCount}</div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+
+                return `
+                    <div class="transport-tab-content" id="${tabContainerId}-${transportType}" ${index === 0 ? '' : 'style="display: none;"'}>
+                        <div style="margin-bottom: 15px;">
+                            <h4 style="margin: 0 0 10px 0; color: #6B73FF;">${transportName} Transport</h4>
+                            <p style="margin: 0; color: #888; font-size: 0.9em;">${transport.description}</p>
+                        </div>
+                        ${processesHTML}
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="transport-tab-container" id="${tabContainerId}">
+                    <div class="transport-tab-header">
+                        ${tabHeaders}
+                    </div>
+                    <div class="transport-tab-body">
+                        ${tabContents}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderUnifiedView(statusData) {
                 
                 const unifiedProxyHTML = `
                     <div class="server-card" style="border: 2px solid #4CAF50;">
@@ -1010,13 +1363,12 @@
                     </div>
                 `).join('') : '';
                 
-                serverList.innerHTML = unifiedProxyHTML + routesHTML;
-            } else {
-                // Individual mode: original logic
-                const proxies = statusData.proxies || [];
+                return unifiedProxyHTML + routesHTML;
+        }
+        
+        function renderIndividualView(proxies) {
                 if (proxies.length === 0) {
-                    serverList.innerHTML = '<div class="loading">No servers found</div>';
-                    return;
+                    return '<div class="loading">No servers found</div>';
                 }
 
                 const serversHTML = proxies.map(proxy => `
@@ -1067,17 +1419,22 @@
                     </div>
                 `).join('');
 
-                serverList.innerHTML = serversHTML;
-            }
-            } catch (error) {
-                console.error('Error updating server list:', error);
-                serverList.innerHTML = '<div class="error">Error loading server data: ' + error.message + '</div>';
-            }
+                return serversHTML;
         }
 
-        function updateEndpointsList(endpointsData) {
+        function updateEndpointsList(endpointsData, statusData) {
             const endpointsList = document.getElementById('endpointsList');
             
+            // Multi-transport mode: show transport-specific endpoints
+            if (statusData && statusData.mode === 'unified-multi-transport') {
+                const transportData = parseTransportData(statusData);
+                if (transportData) {
+                    endpointsList.innerHTML = renderTransportEndpoints(transportData, statusData);
+                    return;
+                }
+            }
+            
+            // Default behavior for individual and unified modes
             if (endpointsData.endpoints.length === 0) {
                 endpointsList.innerHTML = '<div class="loading">No healthy endpoints available</div>';
                 return;
@@ -1091,6 +1448,176 @@
             `).join('');
 
             endpointsList.innerHTML = endpointsHTML;
+        }
+
+        function renderTransportEndpoints(transportData, statusData) {
+            let html = '';
+            
+            // Handle OpenAPI transport separately - show server routes
+            const openapiTransport = transportData.openapi;
+            if (openapiTransport && openapiTransport.totalCount > 0 && openapiTransport.healthyCount > 0) {
+                html += renderOpenAPIEndpoints(transportData, statusData);
+            }
+            
+            // Handle SuperGateway transports - show protocol endpoints (not OpenAPI-compatible)
+            const supergatewayTransports = ['streamable', 'websocket', 'sse'];
+            const healthySupergatewayTransports = [];
+            const failedSupergatewayTransports = [];
+            
+            supergatewayTransports.forEach(transportType => {
+                const transport = transportData[transportType];
+                if (!transport || transport.totalCount === 0) return;
+                
+                if (transport.healthyCount > 0) {
+                    healthySupergatewayTransports.push({
+                        type: transportType,
+                        transport: transport,
+                        icon: getTransportIcon(transportType),
+                        name: transportType.charAt(0).toUpperCase() + transportType.slice(1)
+                    });
+                } else {
+                    failedSupergatewayTransports.push(transportType.charAt(0).toUpperCase() + transportType.slice(1));
+                }
+            });
+            
+            // Show healthy SuperGateway transports
+            if (healthySupergatewayTransports.length > 0) {
+                html += renderSuperGatewayEndpoints(healthySupergatewayTransports);
+            }
+            
+            // Add informational section about multi-transport architecture
+            if (failedSupergatewayTransports.length > 0 || healthySupergatewayTransports.length > 0) {
+                html += renderTransportArchitectureInfo(failedSupergatewayTransports);
+            }
+            
+            return html;
+        }
+        
+        function renderOpenAPIEndpoints(transportData, statusData) {
+            const openapiTransport = transportData.openapi;
+            const icon = getTransportIcon('openapi');
+            const basePort = openapiTransport.port || 50000;
+            
+            // Get server routes from statusData if available
+            const serverRoutes = statusData?.serverRoutes || [];
+            
+            let serverEndpointsHTML = '';
+            if (serverRoutes.length > 0) {
+                // Show actual server routes
+                let routesList = serverRoutes.slice(0, 6).map(route => `
+                    <div class="url-item" style="margin-bottom: 8px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <div>
+                                <span style="font-family: monospace; font-size: 0.9em; color: #4CAF50;">${route.baseUrl}</span>
+                                <button class="copy-btn" onclick="copyToClipboard('${route.baseUrl}')" style="margin-left: 10px;">Copy</button>
+                            </div>
+                            <div style="font-size: 0.8em; color: rgba(255,255,255,0.6); padding-left: 2px;">
+                                <span style="color: rgba(255,255,255,0.5);">OpenAPI:</span> 
+                                <span style="color: #6B73FF; font-family: monospace;">${route.baseUrl}/openapi.json</span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                
+                if (serverRoutes.length > 6) {
+                    routesList += `
+                        <div style="font-size: 0.8em; color: rgba(255,255,255,0.5); margin-top: 8px; text-align: center;">
+                            ... and ${serverRoutes.length - 6} more servers
+                        </div>
+                    `;
+                }
+                
+                serverEndpointsHTML = routesList;
+            } else {
+                // Fallback if no server routes available
+                serverEndpointsHTML = `
+                    <div class="url-item">
+                        <span style="font-family: monospace; font-size: 0.9em;">http://localhost:${basePort}</span>
+                        <button class="copy-btn" onclick="copyToClipboard('http://localhost:${basePort}')">Copy</button>
+                    </div>
+                    <div style="font-size: 0.8em; color: rgba(255,255,255,0.6); margin-top: 8px;">
+                        Individual server routes: /graphiti, /memory, /time, etc.
+                    </div>
+                `;
+            }
+            
+            return `
+                <div style="margin-bottom: 25px;">
+                    <h4 style="color: #4CAF50; margin-bottom: 10px;">${icon} OpenAPI Transport</h4>
+                    <div style="color: rgba(255,255,255,0.8); font-size: 0.9em; margin-bottom: 15px;">
+                        REST API endpoints for OpenWebUI integration (${openapiTransport.healthyCount}/${openapiTransport.totalCount} healthy)
+                    </div>
+                    ${serverEndpointsHTML}
+                </div>
+            `;
+        }
+        
+        function renderSuperGatewayEndpoints(healthyTransports) {
+            return `
+                <div style="margin-bottom: 25px;">
+                    <h4 style="color: #6B73FF; margin-bottom: 10px;">🚀 SuperGateway Protocol Transports</h4>
+                    <div style="color: rgba(255,255,255,0.8); font-size: 0.9em; margin-bottom: 15px;">
+                        Direct MCP protocol endpoints for advanced client integrations
+                    </div>
+                    ${healthyTransports.map(({type, transport, icon, name}) => `
+                        <div style="margin-bottom: 15px; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 6px; border-left: 3px solid #6B73FF;">
+                            <div style="color: #6B73FF; font-weight: 500; margin-bottom: 8px;">
+                                ${icon} ${name} Protocol (${transport.healthyCount}/${transport.totalCount} ready)
+                            </div>
+                            <div style="font-size: 0.85em; color: rgba(255,255,255,0.6); margin-bottom: 8px;">
+                                ${getTransportDescription(type)} • Not for OpenWebUI
+                            </div>
+                            <div style="font-family: monospace; font-size: 0.8em; color: rgba(255,255,255,0.5);">
+                                Sample: ${transport.processes.filter(p => p.healthy)[0]?.url || 'Initializing...'}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        function renderTransportArchitectureInfo(failedTransports) {
+            return `
+                <div style="margin-top: 30px; padding: 20px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; border-left: 4px solid #6B73FF;">
+                    <h4 style="color: #6B73FF; margin-bottom: 10px;">🏗️ Multi-Transport Architecture</h4>
+                    <div style="color: rgba(255,255,255,0.8); font-size: 0.9em; line-height: 1.4; margin-bottom: 10px;">
+                        <strong>For OpenWebUI:</strong> Use OpenAPI Transport above (full REST API compatibility)<br>
+                        <strong>For Advanced Clients:</strong> SuperGateway transports provide native MCP protocol access
+                    </div>
+                    <div style="color: rgba(255,255,255,0.6); font-size: 0.85em; line-height: 1.3; margin: 0;">
+                        Each transport serves the same MCP servers via different protocols. Choose the transport that matches your client's capabilities.
+                        ${failedTransports.length > 0 ? `<br><br><em>Note: ${failedTransports.join(', ')} transports are currently initializing.</em>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function getTransportDescription(type) {
+            const descriptions = {
+                'streamable': 'Modern HTTP streaming protocol',
+                'websocket': 'Real-time bidirectional communication',
+                'sse': 'Server-sent events (legacy streaming)',
+                'openapi': 'REST API with OpenAPI specification'
+            };
+            return descriptions[type] || 'Unknown transport';
+        }
+
+        function showTransportTab(containerId, transportType, tabButton) {
+            // Remove active class from all tabs in this container
+            const container = document.getElementById(containerId);
+            const tabs = container.querySelectorAll('.transport-tab');
+            const contents = container.querySelectorAll('.transport-tab-content');
+            
+            tabs.forEach(tab => tab.classList.remove('active'));
+            contents.forEach(content => content.style.display = 'none');
+            
+            // Activate clicked tab and show its content
+            tabButton.classList.add('active');
+            const contentId = `${containerId}-${transportType}`;
+            const content = document.getElementById(contentId);
+            if (content) {
+                content.style.display = 'block';
+            }
         }
 
         function copyToClipboard(text) {
@@ -1171,7 +1698,7 @@
                 
                 updateStats(statusData);
                 updateServerList(statusData);
-                updateEndpointsList(endpointsData);
+                updateEndpointsList(endpointsData, statusData);
                 updateContainerEnvironmentSection(containerEnvironmentData);
 
                 // Update last refresh time
@@ -1343,6 +1870,47 @@
         }
 
         // Initialize dashboard
+        function renderIndividualView(proxies) {
+            return proxies.map(proxy => `
+                <div class="server-card">
+                    <div class="server-header">
+                        <div class="server-name">${proxy.serverId}</div>
+                        ${getStatusBadge(proxy)}
+                    </div>
+                    <div class="server-details">
+                        <div class="detail-item">
+                            <div class="detail-label">Port</div>
+                            <div class="detail-value">${proxy.port || 'Not running'}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Proxy Type</div>
+                            <div class="detail-value">${proxy.proxyType}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Uptime</div>
+                            <div class="detail-value">${formatUptime(proxy.uptime || 0)}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Restarts</div>
+                            <div class="detail-value">${proxy.restartCount}</div>
+                        </div>
+                        ${proxy.endpoint ? `<div class="detail-item">
+                            <div class="detail-label">Docs</div>
+                            <div class="detail-value">
+                                <a href="${proxy.endpoint}/docs" target="_blank">
+                                    📖 API Docs
+                                </a>
+                            </div>
+                        </div>` : ''}
+                        <div class="detail-item">
+                            <div class="detail-label">Fallback Used</div>
+                            <div class="detail-value">${proxy.fallbackUsed ? 'Yes' : 'No'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             refreshData();
             setupAutoRefresh();

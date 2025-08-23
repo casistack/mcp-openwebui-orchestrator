@@ -250,7 +250,7 @@ class HealthMonitor {
       severity: this.getAlertSeverity(alertType)
     };
 
-    console.warn(`🚨 ALERT [${alert.severity}]: ${alertType} for ${serverId}`, details);
+    console.warn(`ALERT [${alert.severity}]: ${alertType} for ${serverId}`, details);
 
     // Log alert to file
     this.logAlert(alert);
