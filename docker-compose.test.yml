@@ -3,6 +3,10 @@ services:
     build:
       context: .
       dockerfile: mcp-proxy-manager/Dockerfile
+      args:
+        - BUILD_CONTEXT=ci
+        - NODE_ENV=test
+        - INCLUDE_DEV_DEPS=true
     container_name: mcp-proxy-manager-test
     environment:
       - NODE_ENV=test
@@ -30,6 +34,10 @@ services:
     build:
       context: .
       dockerfile: mcp-proxy-manager/Dockerfile
+      args:
+        - BUILD_CONTEXT=ci
+        - NODE_ENV=test
+        - INCLUDE_DEV_DEPS=true
     container_name: mcp-proxy-manager-integration
     environment:
       - NODE_ENV=test

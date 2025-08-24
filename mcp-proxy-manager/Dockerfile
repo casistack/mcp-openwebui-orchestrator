@@ -2,6 +2,11 @@
 FROM node:22-slim AS base
 WORKDIR /app
 
+# Build arguments for flexible context handling
+ARG BUILD_CONTEXT=local
+ARG NODE_ENV=production
+ARG INCLUDE_DEV_DEPS=false
+
 # Stage 1: Build environment with all dependencies
 FROM base AS builder
 
@@ -64,15 +69,42 @@ RUN npm install -g playwright \
 # Note: SuperGateway will be installed via npx on-demand to avoid dependency issues
 
 # Copy package files and install dependencies
-COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+# Use shell to handle flexible copying for different build contexts
+RUN mkdir -p /tmp/build
+COPY . /tmp/build/
 
-# Copy application code and Jest configuration
-COPY src/ ./src/
-COPY jest.config.js ./
+# Copy package.json from appropriate location based on build context
+RUN if [ -f "/tmp/build/package.json" ]; then \
+      cp /tmp/build/package*.json ./; \
+    elif [ -f "/tmp/build/mcp-proxy-manager/package.json" ]; then \
+      cp /tmp/build/mcp-proxy-manager/package*.json ./; \
+    fi
+
+# Install dependencies based on build context and requirements
+RUN if [ "$INCLUDE_DEV_DEPS" = "true" ]; then \
+      npm ci --include=dev; \
+    else \
+      npm ci --only=production; \
+    fi && npm cache clean --force
+
+# Copy application code and Jest configuration from appropriate location
+RUN if [ -d "/tmp/build/src" ]; then \
+      cp -r /tmp/build/src ./; \
+      if [ -f "/tmp/build/jest.config.js" ]; then cp /tmp/build/jest.config.js ./; fi; \
+    elif [ -d "/tmp/build/mcp-proxy-manager/src" ]; then \
+      cp -r /tmp/build/mcp-proxy-manager/src ./; \
+      if [ -f "/tmp/build/mcp-proxy-manager/jest.config.js" ]; then cp /tmp/build/mcp-proxy-manager/jest.config.js ./; fi; \
+    fi
+
+# Clean up temporary build directory
+RUN rm -rf /tmp/build
 
 # Stage 2: Runtime environment (minimal)
 FROM node:22-slim AS runtime
+
+# declare build arguments for runtime stage
+ARG NODE_ENV=production
+ARG BUILD_CONTEXT=local
 
 # Install only essential runtime dependencies
 RUN apt-get update && apt-get install -y \
@@ -146,7 +178,7 @@ RUN groupadd -r mcpgroup && \
 RUN su -s /bin/bash -c "uv tool install mcpo>=0.0.17" mcpuser
 
 # Set environment variables with defaults
-ENV NODE_ENV=production
+ENV NODE_ENV=${NODE_ENV}
 ENV MANAGER_PORT=3001
 ENV CLAUDE_CONFIG_PATH=/config/claude_desktop_config.json
 ENV MCP_PROXY_TYPE=mcpo
