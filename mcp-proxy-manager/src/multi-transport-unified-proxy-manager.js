@@ -246,10 +246,11 @@ class MultiTransportUnifiedProxyManager extends UnifiedProxyManager {
 
       console.log(`[${processKey}] Command: npx ${args.join(' ')}`);
 
-      // Spawn SuperGateway process
+      // Spawn SuperGateway process with security validation
+      const sanitizedEnv = this.sanitizeEnvironment(serverConfig.env);
       const childProcess = spawn('npx', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, ...serverConfig.env } // Include server-specific environment variables
+        env: { ...process.env, ...sanitizedEnv } // Include sanitized server-specific environment variables
       });
 
       // Store process info
@@ -300,13 +301,77 @@ class MultiTransportUnifiedProxyManager extends UnifiedProxyManager {
   }
 
   /**
+   * Lightweight security validation for command arguments
+   * Prevents obvious injection attempts while preserving functionality
+   * @param {array} args - Array of command arguments
+   * @returns {array} - Sanitized arguments array
+   */
+  securityBaseline(args) {
+    // Critical patterns that indicate potential security issues
+    const criticalPatterns = [
+      /[;&|`\$\(\)]/,      // Shell metacharacters  
+      /\.\./,               // Directory traversal
+      /^\s*[\|&;]/,        // Command chaining
+      /\n|\r/,             // Command injection via newlines
+    ];
+    
+    return args.map(arg => {
+      if (typeof arg === 'string') {
+        // Check for critical patterns
+        for (const pattern of criticalPatterns) {
+          if (pattern.test(arg)) {
+            const sanitized = arg.replace(/[;&|`\$\(\)\n\r]/g, '');
+            logger.warn(`Security: Sanitized potentially dangerous argument: "${arg}" -> "${sanitized}"`);
+            return sanitized;
+          }
+        }
+      }
+      return arg;
+    });
+  }
+
+  /**
+   * Lightweight security validation for environment variables
+   * Sanitizes values while allowing all valid environment variable names
+   * @param {object} userEnv - User-provided environment variables
+   * @returns {object} - Sanitized environment variables
+   */
+  sanitizeEnvironment(userEnv = {}) {
+    const sanitizedEnv = {};
+    
+    for (const [key, value] of Object.entries(userEnv)) {
+      // Basic key validation - standard env var format (no whitelist needed)
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+        logger.warn(`Security: Skipped invalid environment variable name: ${key}`);
+        continue;
+      }
+      
+      // Only sanitize dangerous shell metacharacters from values
+      if (typeof value === 'string') {
+        const sanitizedValue = value.replace(/[;&|`\n\r]/g, '');
+        if (sanitizedValue !== value) {
+          logger.warn(`Security: Sanitized environment variable ${key}: "${value}" -> "${sanitizedValue}"`);
+        }
+        sanitizedEnv[key] = sanitizedValue;
+      } else {
+        sanitizedEnv[key] = value;
+      }
+    }
+    
+    return sanitizedEnv;
+  }
+
+  /**
    * Build MCP server command from server configuration
    * @param {object} serverConfig - Server configuration object
    * @returns {string} - Complete MCP server command
    */
   buildMCPServerCommand(serverConfig) {
+    // Apply lightweight security validation to prevent obvious injection attempts
+    const secureArgs = this.securityBaseline(serverConfig.args);
+    
     // Build command with proper argument escaping
-    const args = serverConfig.args.map(arg => {
+    const args = secureArgs.map(arg => {
       // Escape arguments that contain spaces or special characters
       if (typeof arg === 'string' && (arg.includes(' ') || arg.includes('"') || arg.includes("'"))) {
         return `"${arg.replace(/"/g, '\\"')}"`;
