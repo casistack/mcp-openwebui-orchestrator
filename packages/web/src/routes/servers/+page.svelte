@@ -15,7 +15,16 @@
 		createdAt?: string;
 	}
 
+	interface Connection {
+		serverId: string;
+		status: string;
+		toolCount: number;
+		lastPingMs: number | null;
+		lastError: string | null;
+	}
+
 	let servers = $state<Server[]>([]);
+	let connections = $state<Connection[]>([]);
 	let loading = $state(true);
 	let showAddDialog = $state(false);
 	let editingServer = $state<Server | null>(null);
@@ -34,8 +43,12 @@
 
 	async function loadServers() {
 		try {
-			const result = await trpc.servers.list.query();
+			const [result, conns] = await Promise.all([
+				trpc.servers.list.query(),
+				trpc.connections.list.query().catch(() => []),
+			]);
 			servers = (result as unknown as { servers: Server[] }).servers ?? (result as unknown as Server[]);
+			connections = conns as Connection[];
 		} catch (e: unknown) {
 			const msg = e instanceof Error ? e.message : 'Failed to connect to backend';
 			error = msg.includes('FORBIDDEN') ? 'Insufficient permissions to view servers' : msg;
@@ -107,18 +120,47 @@
 			error = e instanceof Error ? e.message : 'Failed to delete server';
 		}
 	}
+
+	function getConnection(serverId: string): Connection | undefined {
+		return connections.find(c => c.serverId === serverId);
+	}
+
+	function connectionStatus(server: Server): { label: string; color: string } {
+		const conn = getConnection(server.id);
+		if (!conn) {
+			if (server.status === 'active') return { label: 'connected', color: 'var(--color-success)' };
+			return { label: 'disconnected', color: 'var(--color-text-muted)' };
+		}
+		if (conn.status === 'connected') return { label: 'connected', color: 'var(--color-success)' };
+		if (conn.status === 'connecting' || conn.status === 'reconnecting') return { label: conn.status, color: 'var(--color-warning)' };
+		return { label: conn.status || 'error', color: 'var(--color-error)' };
+	}
+
+	function formatLatency(server: Server): string {
+		const conn = getConnection(server.id);
+		if (!conn?.lastPingMs) return '-';
+		return `${conn.lastPingMs}ms`;
+	}
+
+	function toolCount(server: Server): number {
+		const conn = getConnection(server.id);
+		return conn?.toolCount ?? 0;
+	}
 </script>
 
 <div>
 	<div class="flex justify-between items-center mb-6">
-		<h2 class="text-2xl font-bold">Servers</h2>
+		<div>
+			<h2 class="text-2xl font-bold">Servers</h2>
+			<p class="text-sm text-[var(--color-text-muted)] mt-1">Manage MCP server connections</p>
+		</div>
 		<button onclick={openAdd} class="bg-[var(--color-primary)] text-white px-4 py-2 rounded-lg text-sm hover:opacity-90">
 			Add Server
 		</button>
 	</div>
 
 	{#if error}
-		<div class="bg-[var(--color-error)]/10 border border-[var(--color-error)] rounded-lg p-3 mb-4 text-sm text-[var(--color-error)]">
+		<div class="rounded-lg p-3 mb-4 text-sm border" style="background: color-mix(in srgb, var(--color-error) 10%, transparent); border-color: var(--color-error); color: var(--color-error);">
 			{error}
 			<button onclick={() => error = null} class="ml-2 underline">dismiss</button>
 		</div>
@@ -136,33 +178,35 @@
 	{:else}
 		<div class="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden">
 			<table class="w-full text-sm">
-				<thead class="border-b border-[var(--color-border)]">
-					<tr class="text-left text-[var(--color-text-muted)]">
-						<th class="p-3">Name</th>
-						<th class="p-3">Transport</th>
-						<th class="p-3">Status</th>
-						<th class="p-3">Proxy</th>
-						<th class="p-3 text-right">Actions</th>
+				<thead>
+					<tr class="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+						<th class="text-left px-4 py-2.5 font-medium">Name</th>
+						<th class="text-left px-4 py-2.5 font-medium">Transport</th>
+						<th class="text-left px-4 py-2.5 font-medium">Status</th>
+						<th class="text-left px-4 py-2.5 font-medium">Tools</th>
+						<th class="text-left px-4 py-2.5 font-medium">Latency</th>
+						<th class="text-right px-4 py-2.5 font-medium">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each servers as server}
-						<tr class="border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-border)]/30">
-							<td class="p-3">
-								<span class="font-medium">{server.displayName || server.name}</span>
-								<span class="text-xs text-[var(--color-text-muted)] ml-1">({server.id})</span>
+						{@const status = connectionStatus(server)}
+						<tr class="border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-border)]/20">
+							<td class="px-4 py-2.5">
+								<span class="font-mono text-xs font-medium">{server.displayName || server.name}</span>
 							</td>
-							<td class="p-3">
+							<td class="px-4 py-2.5">
 								<span class="bg-[var(--color-border)] px-2 py-0.5 rounded text-xs">{server.transport}</span>
 							</td>
-							<td class="p-3">
+							<td class="px-4 py-2.5">
 								<span class="inline-flex items-center gap-1.5">
-									<span class="w-2 h-2 rounded-full" class:bg-[var(--color-success)]={server.status === 'active'} class:bg-[var(--color-text-muted)]={server.status !== 'active'}></span>
-									{server.status}
+									<span class="w-2 h-2 rounded-full flex-shrink-0" style="background: {status.color};"></span>
+									<span class="text-xs">{status.label}</span>
 								</span>
 							</td>
-							<td class="p-3 text-xs text-[var(--color-text-muted)]">{server.proxyType ?? 'mcpo'}</td>
-							<td class="p-3 text-right">
+							<td class="px-4 py-2.5 text-xs text-[var(--color-text-muted)]">{toolCount(server)}</td>
+							<td class="px-4 py-2.5 font-mono text-xs text-[var(--color-text-muted)]">{formatLatency(server)}</td>
+							<td class="px-4 py-2.5 text-right">
 								<button onclick={() => openEdit(server)} class="text-[var(--color-primary)] hover:underline text-xs mr-3">Edit</button>
 								<button onclick={() => deleteTarget = server} class="text-[var(--color-error)] hover:underline text-xs">Delete</button>
 							</td>
@@ -171,11 +215,16 @@
 				</tbody>
 			</table>
 		</div>
+
+		<div class="mt-3 text-xs text-[var(--color-text-muted)]">
+			{servers.length} server{servers.length !== 1 ? 's' : ''} configured
+		</div>
 	{/if}
 </div>
 
 <!-- Add/Edit Dialog -->
 {#if showAddDialog}
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => showAddDialog = false}>
 		<div class="bg-[var(--color-surface)] rounded-lg p-6 w-full max-w-md border border-[var(--color-border)]" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-lg font-bold mb-4">{editingServer ? 'Edit Server' : 'Add Server'}</h3>
@@ -238,6 +287,7 @@
 
 <!-- Delete Confirmation -->
 {#if deleteTarget}
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => deleteTarget = null}>
 		<div class="bg-[var(--color-surface)] rounded-lg p-6 w-full max-w-sm border border-[var(--color-border)]" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-lg font-bold mb-2">Delete Server</h3>

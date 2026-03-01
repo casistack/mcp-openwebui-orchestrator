@@ -7,6 +7,7 @@
 
 	let namespaces = $state<Namespace[]>([]);
 	let allServers = $state<Server[]>([]);
+	let nsServerMap = $state<Record<string, Server[]>>({});
 	let loading = $state(true);
 	let showDialog = $state(false);
 	let editingNs = $state<Namespace | null>(null);
@@ -25,6 +26,16 @@
 			]);
 			namespaces = (nsResult as unknown as { namespaces: Namespace[] }).namespaces ?? (nsResult as unknown as Namespace[]);
 			allServers = (srvResult as unknown as { servers: Server[] }).servers ?? (srvResult as unknown as Server[]);
+
+			// Load servers for each namespace
+			const map: Record<string, Server[]> = {};
+			await Promise.all(namespaces.map(async (ns) => {
+				try {
+					const result = await trpc.namespaces.listServers.query({ namespaceId: ns.id });
+					map[ns.id] = (result as unknown as { servers: Server[] }).servers ?? (result as unknown as Server[]);
+				} catch { map[ns.id] = []; }
+			}));
+			nsServerMap = map;
 		} catch { error = 'Failed to load'; }
 		loading = false;
 	}
@@ -77,28 +88,37 @@
 		if (!managingNs) return;
 		await trpc.namespaces.addServer.mutate({ namespaceId: managingNs.id, serverId });
 		await openManageServers(managingNs);
+		await load();
 	}
 
 	async function removeServerFromNs(serverId: string) {
 		if (!managingNs) return;
 		await trpc.namespaces.removeServer.mutate({ namespaceId: managingNs.id, serverId });
 		await openManageServers(managingNs);
+		await load();
 	}
 
 	function availableServers() {
 		const nsIds = new Set(nsServers.map(s => s.id));
 		return allServers.filter(s => !nsIds.has(s.id));
 	}
+
+	function getServersForNs(nsId: string): Server[] {
+		return nsServerMap[nsId] ?? [];
+	}
 </script>
 
 <div>
 	<div class="flex justify-between items-center mb-6">
-		<h2 class="text-2xl font-bold">Namespaces</h2>
+		<div>
+			<h2 class="text-2xl font-bold">Namespaces</h2>
+			<p class="text-sm text-[var(--color-text-muted)] mt-1">Group servers into logical units</p>
+		</div>
 		<button onclick={openAdd} class="bg-[var(--color-primary)] text-white px-4 py-2 rounded-lg text-sm hover:opacity-90">Create Namespace</button>
 	</div>
 
 	{#if error}
-		<div class="bg-[var(--color-error)]/10 border border-[var(--color-error)] rounded-lg p-3 mb-4 text-sm text-[var(--color-error)]">
+		<div class="rounded-lg p-3 mb-4 text-sm border" style="background: color-mix(in srgb, var(--color-error) 10%, transparent); border-color: var(--color-error); color: var(--color-error);">
 			{error} <button onclick={() => error = null} class="ml-2 underline">dismiss</button>
 		</div>
 	{/if}
@@ -113,6 +133,7 @@
 	{:else}
 		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 			{#each namespaces as ns}
+				{@const servers = getServersForNs(ns.id)}
 				<div class="bg-[var(--color-surface)] rounded-lg p-4 border border-[var(--color-border)]">
 					<div class="flex justify-between items-start mb-2">
 						<div>
@@ -120,13 +141,27 @@
 							<p class="text-xs text-[var(--color-text-muted)]">/{ns.slug}</p>
 						</div>
 						{#if ns.isPublic}
-							<span class="text-xs bg-[var(--color-success)]/20 text-[var(--color-success)] px-2 py-0.5 rounded">Public</span>
+							<span class="text-xs px-2 py-0.5 rounded" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success);">Public</span>
 						{/if}
 					</div>
+
 					{#if ns.description}
 						<p class="text-sm text-[var(--color-text-muted)] mb-3">{ns.description}</p>
 					{/if}
-					<div class="flex gap-2 text-xs">
+
+					<!-- Server count and tags -->
+					<div class="mb-3">
+						<p class="text-xs text-[var(--color-text-muted)] mb-1.5">{servers.length} server{servers.length !== 1 ? 's' : ''}</p>
+						{#if servers.length > 0}
+							<div class="flex flex-wrap gap-1">
+								{#each servers as server}
+									<span class="text-[10px] bg-[var(--color-border)] px-1.5 py-0.5 rounded font-mono">{server.name}</span>
+								{/each}
+							</div>
+						{/if}
+					</div>
+
+					<div class="flex gap-3 text-xs pt-2 border-t border-[var(--color-border)]">
 						<button onclick={() => openManageServers(ns)} class="text-[var(--color-primary)] hover:underline">Servers</button>
 						<button onclick={() => openEdit(ns)} class="text-[var(--color-primary)] hover:underline">Edit</button>
 						<button onclick={() => deleteTarget = ns} class="text-[var(--color-error)] hover:underline">Delete</button>
@@ -139,6 +174,7 @@
 
 <!-- Add/Edit Dialog -->
 {#if showDialog}
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => showDialog = false}>
 		<div class="bg-[var(--color-surface)] rounded-lg p-6 w-full max-w-md border border-[var(--color-border)]" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-lg font-bold mb-4">{editingNs ? 'Edit Namespace' : 'Create Namespace'}</h3>
@@ -166,6 +202,7 @@
 
 <!-- Manage Servers Dialog -->
 {#if managingNs}
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => managingNs = null}>
 		<div class="bg-[var(--color-surface)] rounded-lg p-6 w-full max-w-lg border border-[var(--color-border)]" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-lg font-bold mb-4">Servers in "{managingNs.name}"</h3>
@@ -175,7 +212,7 @@
 					<p class="text-xs text-[var(--color-text-muted)] mb-2">Current servers:</p>
 					{#each nsServers as server}
 						<div class="flex justify-between items-center py-1.5 border-b border-[var(--color-border)] last:border-0">
-							<span class="text-sm">{server.name} <span class="text-xs text-[var(--color-text-muted)]">({server.transport})</span></span>
+							<span class="text-sm font-mono">{server.name} <span class="text-xs text-[var(--color-text-muted)]">({server.transport})</span></span>
 							<button onclick={() => removeServerFromNs(server.id)} class="text-xs text-[var(--color-error)] hover:underline">Remove</button>
 						</div>
 					{/each}
@@ -189,7 +226,7 @@
 					<p class="text-xs text-[var(--color-text-muted)] mb-2">Add server:</p>
 					{#each availableServers() as server}
 						<div class="flex justify-between items-center py-1.5 border-b border-[var(--color-border)] last:border-0">
-							<span class="text-sm">{server.name}</span>
+							<span class="text-sm font-mono">{server.name}</span>
 							<button onclick={() => addServerToNs(server.id)} class="text-xs text-[var(--color-primary)] hover:underline">Add</button>
 						</div>
 					{/each}
@@ -205,6 +242,7 @@
 
 <!-- Delete Confirmation -->
 {#if deleteTarget}
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => deleteTarget = null}>
 		<div class="bg-[var(--color-surface)] rounded-lg p-6 w-full max-w-sm border border-[var(--color-border)]" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-lg font-bold mb-2">Delete Namespace</h3>

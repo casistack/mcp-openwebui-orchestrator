@@ -29,6 +29,16 @@
 
 	function nsName(id: string) { return namespaces.find(n => n.id === id)?.name ?? id; }
 
+	function authLabel(type: string): string {
+		switch (type) {
+			case 'api_key': return 'API Key';
+			case 'bearer': return 'Bearer';
+			case 'oauth': return 'OAuth';
+			case 'none': return 'None';
+			default: return type;
+		}
+	}
+
 	async function handleCreate() {
 		error = null;
 		try {
@@ -50,14 +60,17 @@
 
 <div>
 	<div class="flex justify-between items-center mb-6">
-		<h2 class="text-2xl font-bold">Endpoints</h2>
+		<div>
+			<h2 class="text-2xl font-bold">Endpoints</h2>
+			<p class="text-sm text-[var(--color-text-muted)] mt-1">Expose namespaces to MCP clients</p>
+		</div>
 		<button onclick={() => { form = { namespaceId: namespaces[0]?.id ?? '', name: '', transport: 'sse', authType: 'api_key', rateLimit: 100 }; showDialog = true; }} class="bg-[var(--color-primary)] text-white px-4 py-2 rounded-lg text-sm hover:opacity-90">
 			Create Endpoint
 		</button>
 	</div>
 
 	{#if error}
-		<div class="bg-[var(--color-error)]/10 border border-[var(--color-error)] rounded-lg p-3 mb-4 text-sm text-[var(--color-error)]">{error}</div>
+		<div class="rounded-lg p-3 mb-4 text-sm border" style="background: color-mix(in srgb, var(--color-error) 10%, transparent); border-color: var(--color-error); color: var(--color-error);">{error}</div>
 	{/if}
 
 	{#if loading}
@@ -69,32 +82,39 @@
 	{:else}
 		<div class="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden">
 			<table class="w-full text-sm">
-				<thead class="border-b border-[var(--color-border)]">
-					<tr class="text-left text-[var(--color-text-muted)]">
-						<th class="p-3">Name</th>
-						<th class="p-3">Namespace</th>
-						<th class="p-3">Transport</th>
-						<th class="p-3">Auth</th>
-						<th class="p-3">Rate Limit</th>
-						<th class="p-3">Status</th>
-						<th class="p-3 text-right">Actions</th>
+				<thead>
+					<tr class="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+						<th class="text-left px-4 py-2.5 font-medium">Name</th>
+						<th class="text-left px-4 py-2.5 font-medium">Namespace</th>
+						<th class="text-left px-4 py-2.5 font-medium">Transport</th>
+						<th class="text-left px-4 py-2.5 font-medium">Auth</th>
+						<th class="text-left px-4 py-2.5 font-medium">Rate Limit</th>
+						<th class="text-left px-4 py-2.5 font-medium">Status</th>
+						<th class="text-right px-4 py-2.5 font-medium">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each endpoints as ep}
-						<tr class="border-b border-[var(--color-border)] last:border-0">
-							<td class="p-3 font-medium">{ep.name}</td>
-							<td class="p-3 text-[var(--color-text-muted)]">{nsName(ep.namespaceId)}</td>
-							<td class="p-3"><span class="bg-[var(--color-border)] px-2 py-0.5 rounded text-xs">{ep.transport}</span></td>
-							<td class="p-3 text-xs">{ep.authType}</td>
-							<td class="p-3 text-xs">{ep.rateLimit}/min</td>
-							<td class="p-3">
-								<span class="inline-flex items-center gap-1">
-									<span class="w-2 h-2 rounded-full" class:bg-[var(--color-success)]={ep.isActive} class:bg-[var(--color-text-muted)]={!ep.isActive}></span>
-									{ep.isActive ? 'Active' : 'Inactive'}
+						<tr class="border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-border)]/20">
+							<td class="px-4 py-2.5">
+								<span class="font-mono text-xs font-medium">{ep.name}</span>
+								<p class="text-[10px] text-[var(--color-text-muted)]">/{ep.slug}</p>
+							</td>
+							<td class="px-4 py-2.5 text-xs text-[var(--color-text-muted)]">{nsName(ep.namespaceId)}</td>
+							<td class="px-4 py-2.5">
+								<span class="bg-[var(--color-border)] px-2 py-0.5 rounded text-xs">{ep.transport}</span>
+							</td>
+							<td class="px-4 py-2.5">
+								<span class="text-xs px-2 py-0.5 rounded" style="background: color-mix(in srgb, var(--color-primary) 15%, transparent); color: var(--color-primary);">{authLabel(ep.authType)}</span>
+							</td>
+							<td class="px-4 py-2.5 text-xs text-[var(--color-text-muted)]">{ep.rateLimit}/min</td>
+							<td class="px-4 py-2.5">
+								<span class="inline-flex items-center gap-1.5">
+									<span class="w-2 h-2 rounded-full" style="background: {ep.isActive ? 'var(--color-success)' : 'var(--color-text-muted)'};"></span>
+									<span class="text-xs">{ep.isActive ? 'Active' : 'Inactive'}</span>
 								</span>
 							</td>
-							<td class="p-3 text-right">
+							<td class="px-4 py-2.5 text-right">
 								<button onclick={() => deleteTarget = ep} class="text-[var(--color-error)] hover:underline text-xs">Delete</button>
 							</td>
 						</tr>
@@ -102,10 +122,15 @@
 				</tbody>
 			</table>
 		</div>
+
+		<div class="mt-3 text-xs text-[var(--color-text-muted)]">
+			{endpoints.length} endpoint{endpoints.length !== 1 ? 's' : ''} configured
+		</div>
 	{/if}
 </div>
 
 {#if showDialog}
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => showDialog = false}>
 		<div class="bg-[var(--color-surface)] rounded-lg p-6 w-full max-w-md border border-[var(--color-border)]" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-lg font-bold mb-4">Create Endpoint</h3>
@@ -151,6 +176,7 @@
 {/if}
 
 {#if deleteTarget}
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => deleteTarget = null}>
 		<div class="bg-[var(--color-surface)] rounded-lg p-6 w-full max-w-sm border border-[var(--color-border)]" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-lg font-bold mb-2">Delete Endpoint</h3>
