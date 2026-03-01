@@ -1,14 +1,20 @@
+import { createServer } from 'http';
 import { createApp } from './app.js';
 
 const PORT = parseInt(process.env.MANAGER_PORT ?? process.env.PORT ?? '3001', 10);
 
 async function main() {
-  const { app } = await createApp({
+  const { app, wsBroadcaster } = await createApp({
     databaseUrl: process.env.DATABASE_URL,
     configPath: process.env.CLAUDE_CONFIG_PATH,
   });
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = createServer(app);
+
+  // Attach WebSocket server for real-time events
+  wsBroadcaster.attach(server);
+
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`MCP Platform running on port ${PORT}`);
   });
 }

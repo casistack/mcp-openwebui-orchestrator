@@ -4,6 +4,9 @@ import type { EndpointService } from '../services/endpoint-service.js';
 import type { ToolConfigService } from '../services/tool-config-service.js';
 import type { ApiKeyService } from '../services/api-key-service.js';
 import type { ConnectionManager } from '../services/connection-manager.js';
+import type { WSBroadcaster } from '../services/ws-server.js';
+import { auditLogs } from '@mcp-platform/db';
+import type { AppDatabase } from '@mcp-platform/db';
 import crypto from 'crypto';
 
 export interface MCPProtocolServices {
@@ -12,6 +15,8 @@ export interface MCPProtocolServices {
   toolConfigService: ToolConfigService;
   apiKeyService: ApiKeyService;
   connectionManager?: ConnectionManager;
+  wsBroadcaster?: WSBroadcaster;
+  db?: AppDatabase;
 }
 
 interface MCPTool {
@@ -268,10 +273,33 @@ export function createMCPProtocolRouter(services: MCPProtocolServices): Router {
         }
 
         // Proxy the call to the real MCP server
+        const callStart = Date.now();
         try {
           const result = await client.callTool(resolved.originalToolName, toolArgs);
+          const durationMs = Date.now() - callStart;
+
+          // Audit log the tool call
+          logToolCall(services, {
+            toolName: resolved.originalToolName,
+            serverId: resolved.serverId,
+            namespaceId,
+            durationMs,
+            status: 'success',
+          });
+
           return jsonrpcResponse(id, result);
         } catch (err) {
+          const durationMs = Date.now() - callStart;
+
+          logToolCall(services, {
+            toolName: resolved.originalToolName,
+            serverId: resolved.serverId,
+            namespaceId,
+            durationMs,
+            status: 'failure',
+            error: (err as Error).message,
+          });
+
           return jsonrpcError(id, -32603, `Tool call failed: ${(err as Error).message}`);
         }
       }
@@ -427,6 +455,52 @@ export function createMCPProtocolRouter(services: MCPProtocolServices): Router {
       },
     });
   });
+
+  // Log tool calls to audit_logs and broadcast via WebSocket
+  function logToolCall(
+    svc: MCPProtocolServices,
+    entry: {
+      toolName: string;
+      serverId: string;
+      namespaceId: string;
+      durationMs: number;
+      status: string;
+      error?: string;
+    },
+  ): void {
+    // Write to audit_logs if DB is available
+    if (svc.db) {
+      svc.db.insert(auditLogs).values({
+        id: crypto.randomUUID(),
+        action: 'tools/call',
+        resource: 'tool',
+        resourceId: entry.toolName,
+        details: {
+          serverId: entry.serverId,
+          namespaceId: entry.namespaceId,
+          toolName: entry.toolName,
+          durationMs: entry.durationMs,
+          error: entry.error,
+        },
+        status: entry.status,
+        durationMs: entry.durationMs,
+      }).catch(err => console.error('Failed to audit tool call:', (err as Error).message));
+    }
+
+    // Broadcast to WebSocket clients
+    svc.wsBroadcaster?.broadcast({
+      type: 'tool:called',
+      data: {
+        toolName: entry.toolName,
+        serverId: entry.serverId,
+        namespaceId: entry.namespaceId,
+        durationMs: entry.durationMs,
+        status: entry.status,
+        error: entry.error,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   return router;
 }

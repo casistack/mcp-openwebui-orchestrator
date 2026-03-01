@@ -6,9 +6,13 @@ import type { EndpointService } from '../services/endpoint-service.js';
 import type { ToolConfigService } from '../services/tool-config-service.js';
 import type { ApiKeyService } from '../services/api-key-service.js';
 import type { ConnectionManager } from '../services/connection-manager.js';
+import type { HealthService } from '../services/health-service.js';
+import type { AppDatabase } from '@mcp-platform/db';
 
 export interface TRPCContext {
   user?: { id: string };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db?: any;
   services: {
     serverService: ServerService;
     namespaceService: NamespaceService;
@@ -16,13 +20,14 @@ export interface TRPCContext {
     toolConfigService: ToolConfigService;
     apiKeyService: ApiKeyService;
     connectionManager?: ConnectionManager;
+    healthService?: HealthService;
   };
 }
 
-export function createTRPCContext(services: TRPCContext['services']) {
+export function createTRPCContext(services: TRPCContext['services'], db?: AppDatabase) {
   return ({ req }: trpcExpress.CreateExpressContextOptions): TRPCContext => {
     const user = (req as typeof req & { user?: { id: string } }).user;
-    return { user, services };
+    return { user, db, services };
   };
 }
 

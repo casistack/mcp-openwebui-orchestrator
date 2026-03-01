@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { auditLogs, eq, gte, sql, count, and, desc } from '@mcp-platform/db';
 import { router, protectedProcedure } from './index.js';
 
 export const appRouter = router({
@@ -323,6 +324,92 @@ export const appRouter = router({
         const client = cm.getClient(input.serverId);
         if (!client) throw new Error('Server not connected');
         return client.ping();
+      }),
+  }),
+
+  // --- Audit ---
+  audit: router({
+    toolCallStats: protectedProcedure
+      .input(z.object({ hours: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const db = ctx.db;
+        if (!db) return { totalCalls: 0, successCalls: 0, failedCalls: 0, avgDurationMs: 0 };
+
+        const hours = input?.hours ?? 24;
+        const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+        const rows = await db
+          .select({
+            totalCalls: count(),
+            successCalls: sql<number>`SUM(CASE WHEN ${auditLogs.status} = 'success' THEN 1 ELSE 0 END)`,
+            failedCalls: sql<number>`SUM(CASE WHEN ${auditLogs.status} = 'failure' THEN 1 ELSE 0 END)`,
+            avgDurationMs: sql<number>`AVG(${auditLogs.durationMs})`,
+          })
+          .from(auditLogs)
+          .where(and(
+            eq(auditLogs.action, 'tools/call'),
+            gte(auditLogs.createdAt, since),
+          ));
+
+        const row = rows[0];
+        return {
+          totalCalls: row?.totalCalls ?? 0,
+          successCalls: row?.successCalls ?? 0,
+          failedCalls: row?.failedCalls ?? 0,
+          avgDurationMs: row?.avgDurationMs ? Math.round(row.avgDurationMs) : 0,
+        };
+      }),
+
+    recent: protectedProcedure
+      .input(z.object({ limit: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const db = ctx.db;
+        if (!db) return [];
+
+        return db
+          .select()
+          .from(auditLogs)
+          .orderBy(desc(auditLogs.createdAt))
+          .limit(input?.limit ?? 50);
+      }),
+  }),
+
+  // --- Health ---
+  health: router({
+    stats: protectedProcedure
+      .input(z.object({ serverId: z.string(), hours: z.number().optional() }))
+      .query(({ ctx, input }) => {
+        const hs = ctx.services.healthService;
+        if (!hs) throw new Error('Health service not available');
+        return hs.getHealthStats(input.serverId, input.hours ?? 24);
+      }),
+
+    allStats: protectedProcedure
+      .input(z.object({ hours: z.number().optional() }).optional())
+      .query(({ ctx, input }) => {
+        const hs = ctx.services.healthService;
+        if (!hs) throw new Error('Health service not available');
+        return hs.getAllHealthStats(input?.hours ?? 24);
+      }),
+
+    timeSeries: protectedProcedure
+      .input(z.object({
+        serverId: z.string(),
+        hours: z.number().optional(),
+        limit: z.number().optional(),
+      }))
+      .query(({ ctx, input }) => {
+        const hs = ctx.services.healthService;
+        if (!hs) throw new Error('Health service not available');
+        return hs.getHealthTimeSeries(input.serverId, input.hours ?? 24, input.limit ?? 100);
+      }),
+
+    recent: protectedProcedure
+      .input(z.object({ serverId: z.string(), limit: z.number().optional() }))
+      .query(({ ctx, input }) => {
+        const hs = ctx.services.healthService;
+        if (!hs) throw new Error('Health service not available');
+        return hs.getRecentHealth(input.serverId, input.limit ?? 50);
       }),
   }),
 

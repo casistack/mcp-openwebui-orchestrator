@@ -13,6 +13,8 @@ import { RBACService } from './services/rbac-service.js';
 import { SecretsService } from './services/secrets-service.js';
 import { SandboxService } from './services/sandbox-service.js';
 import { ConnectionManager } from './services/connection-manager.js';
+import { HealthService } from './services/health-service.js';
+import { WSBroadcaster } from './services/ws-server.js';
 import { createApiV1Router } from './routes/api-v1.js';
 import { createApiV1Phase2Router } from './routes/api-v1-phase2.js';
 import { createAdminRouter } from './routes/api-v1-admin.js';
@@ -38,6 +40,8 @@ export async function createApp(config: AppConfig = {}): Promise<{
   serverService: ServerService;
   rbacService: RBACService;
   connectionManager: ConnectionManager;
+  wsBroadcaster: WSBroadcaster;
+  healthService: HealthService;
 }> {
   const db = createDatabase({
     type: 'sqlite',
@@ -53,7 +57,11 @@ export async function createApp(config: AppConfig = {}): Promise<{
   const rbacService = new RBACService(db);
   const secretsService = new SecretsService(db);
   const sandboxService = new SandboxService();
+  const healthService = new HealthService(db);
+  const wsBroadcaster = new WSBroadcaster();
   const connectionManager = new ConnectionManager(serverService, toolConfigService);
+  connectionManager.setHealthService(healthService);
+  wsBroadcaster.wireConnectionManager(connectionManager);
 
   // Seed default RBAC roles/permissions on first run
   await rbacService.seedDefaults();
@@ -111,6 +119,8 @@ export async function createApp(config: AppConfig = {}): Promise<{
     toolConfigService,
     apiKeyService,
     connectionManager,
+    wsBroadcaster,
+    db,
   }));
 
   // tRPC endpoint for type-safe frontend communication
@@ -125,7 +135,8 @@ export async function createApp(config: AppConfig = {}): Promise<{
         toolConfigService,
         apiKeyService,
         connectionManager,
-      }),
+        healthService,
+      }, db),
     }),
   );
 
@@ -167,7 +178,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   }).catch(() => { /* non-critical */ });
   connectionManager.startHealthChecks();
 
-  return { app, db, auth, serverService, rbacService, connectionManager };
+  return { app, db, auth, serverService, rbacService, connectionManager, wsBroadcaster, healthService };
 }
 
 async function autoImportServers(

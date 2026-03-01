@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { MCPClient, type MCPClientConfig, type MCPClientStatus, type MCPTool } from './mcp-client.js';
 import type { ServerService } from './server-service.js';
 import type { ToolConfigService } from './tool-config-service.js';
+import type { HealthService } from './health-service.js';
 
 export interface ConnectionInfo {
   serverId: string;
@@ -35,11 +36,20 @@ export class ConnectionManager extends EventEmitter {
   static readonly BASE_RECONNECT_DELAY = 2_000;
   static readonly HEALTH_CHECK_INTERVAL = 30_000;
 
+  private healthService: HealthService | null = null;
+
   constructor(
     private serverService: ServerService,
     private toolConfigService: ToolConfigService,
   ) {
     super();
+  }
+
+  /**
+   * Attach a health service for persisting ping results.
+   */
+  setHealthService(healthService: HealthService): void {
+    this.healthService = healthService;
   }
 
   /**
@@ -236,11 +246,25 @@ export class ConnectionManager extends EventEmitter {
         managed.lastError = null;
         results.set(serverId, latencyMs);
         this.emit('server:ping', { serverId, latencyMs });
+
+        // Persist health record
+        this.healthService?.recordHealth({
+          serverId,
+          healthy: true,
+          responseTime: latencyMs,
+        }).catch(() => { /* non-critical */ });
       } catch (err) {
         managed.lastPingMs = null;
         managed.lastError = (err as Error).message;
         results.set(serverId, null);
         this.emit('server:ping:failed', { serverId, error: (err as Error).message });
+
+        // Persist failed health record
+        this.healthService?.recordHealth({
+          serverId,
+          healthy: false,
+          error: (err as Error).message,
+        }).catch(() => { /* non-critical */ });
       }
     }
 
