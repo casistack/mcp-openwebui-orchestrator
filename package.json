@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "test": "cd mcp-proxy-manager && npm test",
+    "test:unit": "cd mcp-proxy-manager && npm run test:unit",
+    "test:coverage": "cd mcp-proxy-manager && npm run test:coverage"
+  },
+  "devDependencies": {
+    "husky": "^9.1.0"
+  }
+}
