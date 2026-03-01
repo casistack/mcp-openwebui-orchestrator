@@ -1,5 +1,17 @@
 mcp-proxy-manager/node_modules/
 node_modules/
+packages/*/node_modules/
+
+# TypeScript build output
+packages/*/dist/
+
+# Turborepo
+.turbo/
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
 __pycache__/
 *.pyc
 *.pyo

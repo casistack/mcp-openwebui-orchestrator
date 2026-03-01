@@ -1,0 +1,12 @@
+{
+  "name": "@mcp-platform/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "echo 'Web package: SvelteKit setup pending (Phase 3)'",
+    "dev": "echo 'Web package: SvelteKit setup pending (Phase 3)'"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

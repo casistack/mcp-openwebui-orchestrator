@@ -1,12 +1,26 @@
 {
   "private": true,
+  "packageManager": "pnpm@10.27.0",
   "scripts": {
     "prepare": "husky",
+    "build": "turbo run build",
+    "dev": "turbo run dev",
     "test": "cd mcp-proxy-manager && npm test",
     "test:unit": "cd mcp-proxy-manager && npm run test:unit",
-    "test:coverage": "cd mcp-proxy-manager && npm run test:coverage"
+    "test:coverage": "cd mcp-proxy-manager && npm run test:coverage",
+    "test:all": "turbo run test",
+    "db:generate": "turbo run db:generate --filter=@mcp-platform/db",
+    "db:migrate": "turbo run db:migrate --filter=@mcp-platform/db"
   },
   "devDependencies": {
-    "husky": "^9.1.0"
+    "husky": "^9.1.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
   }
 }
