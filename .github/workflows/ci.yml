@@ -3,10 +3,10 @@ name: CI/CD Pipeline
 on:
   # Trigger on pull requests to main branch
   pull_request:
-    branches: [ main, mybranch ]
-  # Trigger on pushes to main or mybranch
+    branches: [ main ]
+  # Trigger on pushes to main
   push:
-    branches: [ main, mybranch ]
+    branches: [ main ]
   # Allow manual triggering
   workflow_dispatch:
 
@@ -59,7 +59,7 @@ jobs:
     name: Run Tests
     strategy:
       matrix:
-        node-version: [18, 20, 22]  # Test multiple Node versions
+        node-version: [20, 22]  # Test supported Node versions (>=20)
     
     steps:
     - name: Checkout code
