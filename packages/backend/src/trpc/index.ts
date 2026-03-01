@@ -5,6 +5,7 @@ import type { NamespaceService } from '../services/namespace-service.js';
 import type { EndpointService } from '../services/endpoint-service.js';
 import type { ToolConfigService } from '../services/tool-config-service.js';
 import type { ApiKeyService } from '../services/api-key-service.js';
+import type { ConnectionManager } from '../services/connection-manager.js';
 
 export interface TRPCContext {
   user?: { id: string };
@@ -14,6 +15,7 @@ export interface TRPCContext {
     endpointService: EndpointService;
     toolConfigService: ToolConfigService;
     apiKeyService: ApiKeyService;
+    connectionManager?: ConnectionManager;
   };
 }
 

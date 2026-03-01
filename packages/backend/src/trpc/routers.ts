@@ -259,6 +259,73 @@ export const appRouter = router({
       }),
   }),
 
+  // --- Connections ---
+  connections: router({
+    list: protectedProcedure.query(({ ctx }) => {
+      const cm = ctx.services.connectionManager;
+      if (!cm) return [];
+      return cm.listConnections().map(c => ({
+        serverId: c.serverId,
+        status: c.status,
+        toolCount: c.tools.length,
+        lastPingMs: c.lastPingMs,
+        lastError: c.lastError,
+        connectTime: c.connectTime,
+        reconnectAttempts: c.reconnectAttempts,
+      }));
+    }),
+
+    connect: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const cm = ctx.services.connectionManager;
+        if (!cm) throw new Error('Connection manager not available');
+        const server = await ctx.services.serverService.getServer(input.serverId);
+        if (!server) throw new Error('Server not found');
+
+        const config = {
+          id: server.id,
+          transport: server.transport as 'stdio' | 'sse' | 'streamable-http',
+          command: server.command ?? undefined,
+          args: server.args ?? undefined,
+          cwd: server.cwd ?? undefined,
+          url: server.url ?? undefined,
+          headers: server.headers ?? undefined,
+        };
+
+        await cm.connect(config);
+        return { ok: true };
+      }),
+
+    disconnect: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const cm = ctx.services.connectionManager;
+        if (!cm) throw new Error('Connection manager not available');
+        await cm.disconnect(input.serverId);
+        return { ok: true };
+      }),
+
+    discoverTools: protectedProcedure
+      .input(z.object({ serverId: z.string(), namespaceId: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const cm = ctx.services.connectionManager;
+        if (!cm) throw new Error('Connection manager not available');
+        const tools = await cm.discoverTools(input.serverId, input.namespaceId);
+        return tools.map(t => ({ name: t.name, description: t.description }));
+      }),
+
+    ping: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const cm = ctx.services.connectionManager;
+        if (!cm) throw new Error('Connection manager not available');
+        const client = cm.getClient(input.serverId);
+        if (!client) throw new Error('Server not connected');
+        return client.ping();
+      }),
+  }),
+
   // --- Stats ---
   stats: protectedProcedure.query(async ({ ctx }) => {
     const [servers, namespaces, endpoints] = await Promise.all([
@@ -266,7 +333,18 @@ export const appRouter = router({
       ctx.services.namespaceService.getNamespaceCount(),
       ctx.services.endpointService.getEndpointCount(),
     ]);
-    return { servers, namespaces, endpoints, timestamp: new Date() };
+
+    const cm = ctx.services.connectionManager;
+    const connections = cm ? cm.listConnections() : [];
+    const connectedCount = connections.filter(c => c.status === 'connected').length;
+
+    return {
+      servers,
+      namespaces,
+      endpoints,
+      connectedServers: connectedCount,
+      timestamp: new Date(),
+    };
   }),
 });
 

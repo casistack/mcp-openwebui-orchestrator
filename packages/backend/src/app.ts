@@ -12,6 +12,7 @@ import { ApiKeyService } from './services/api-key-service.js';
 import { RBACService } from './services/rbac-service.js';
 import { SecretsService } from './services/secrets-service.js';
 import { SandboxService } from './services/sandbox-service.js';
+import { ConnectionManager } from './services/connection-manager.js';
 import { createApiV1Router } from './routes/api-v1.js';
 import { createApiV1Phase2Router } from './routes/api-v1-phase2.js';
 import { createAdminRouter } from './routes/api-v1-admin.js';
@@ -36,6 +37,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   auth: ReturnType<typeof createAuth>;
   serverService: ServerService;
   rbacService: RBACService;
+  connectionManager: ConnectionManager;
 }> {
   const db = createDatabase({
     type: 'sqlite',
@@ -51,6 +53,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   const rbacService = new RBACService(db);
   const secretsService = new SecretsService(db);
   const sandboxService = new SandboxService();
+  const connectionManager = new ConnectionManager(serverService, toolConfigService);
 
   // Seed default RBAC roles/permissions on first run
   await rbacService.seedDefaults();
@@ -107,6 +110,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
     endpointService,
     toolConfigService,
     apiKeyService,
+    connectionManager,
   }));
 
   // tRPC endpoint for type-safe frontend communication
@@ -120,6 +124,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
         endpointService,
         toolConfigService,
         apiKeyService,
+        connectionManager,
       }),
     }),
   );
@@ -154,7 +159,15 @@ export async function createApp(config: AppConfig = {}): Promise<{
   // Auto-import on first startup
   await autoImportServers(db, serverService, config.configPath);
 
-  return { app, db, auth, serverService, rbacService };
+  // Auto-connect to all servers and start health monitoring
+  connectionManager.connectAll().then(({ connected, failed }) => {
+    if (connected > 0 || failed > 0) {
+      console.log(`Server connections: ${connected} connected, ${failed} failed`);
+    }
+  }).catch(() => { /* non-critical */ });
+  connectionManager.startHealthChecks();
+
+  return { app, db, auth, serverService, rbacService, connectionManager };
 }
 
 async function autoImportServers(

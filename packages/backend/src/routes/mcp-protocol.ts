@@ -3,6 +3,7 @@ import type { NamespaceService } from '../services/namespace-service.js';
 import type { EndpointService } from '../services/endpoint-service.js';
 import type { ToolConfigService } from '../services/tool-config-service.js';
 import type { ApiKeyService } from '../services/api-key-service.js';
+import type { ConnectionManager } from '../services/connection-manager.js';
 import crypto from 'crypto';
 
 export interface MCPProtocolServices {
@@ -10,6 +11,7 @@ export interface MCPProtocolServices {
   endpointService: EndpointService;
   toolConfigService: ToolConfigService;
   apiKeyService: ApiKeyService;
+  connectionManager?: ConnectionManager;
 }
 
 interface MCPTool {
@@ -128,38 +130,85 @@ export function createMCPProtocolRouter(services: MCPProtocolServices): Router {
     return allEndpoints.find(e => e.slug === slug && e.isActive) ?? null;
   }
 
-  // Get aggregated tools for a namespace, respecting tool configs
+  // Get aggregated tools for a namespace from connected MCP servers,
+  // respecting tool configs (enabled/disabled, display name overrides).
   async function getNamespaceTools(namespaceId: string): Promise<MCPTool[]> {
     const servers = await services.namespaceService.listServers(namespaceId);
     const toolConfigurations = await services.toolConfigService.getToolConfigs(namespaceId);
+    const cm = services.connectionManager;
 
     const tools: MCPTool[] = [];
 
     for (const server of servers) {
-      // Each server contributes a placeholder tool representing its capabilities
-      // In a full implementation, this would query the actual MCP server for its tools
-      const serverToolConfig = toolConfigurations.find(
-        tc => tc.serverId === server.id,
-      );
+      // Get real tools from the connected server
+      const client = cm?.getClient(server.id);
+      const serverTools = client?.tools ?? [];
 
-      // Skip disabled tools
-      if (serverToolConfig && !serverToolConfig.enabled) continue;
+      if (serverTools.length > 0) {
+        // Return real discovered tools, applying config overrides
+        for (const tool of serverTools) {
+          const config = toolConfigurations.find(
+            tc => tc.serverId === server.id && tc.toolName === tool.name,
+          );
 
-      tools.push({
-        name: serverToolConfig?.displayName ?? `${server.name}`,
-        description: serverToolConfig?.description as string ?? `Tools from ${server.name} server`,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            toolName: { type: 'string', description: 'The tool to invoke' },
-            arguments: { type: 'object', description: 'Tool arguments' },
-          },
-          required: ['toolName'],
-        },
-      });
+          // Skip disabled tools
+          if (config && !config.enabled) continue;
+
+          tools.push({
+            name: config?.displayName ?? tool.name,
+            description: (config?.description as string) ?? tool.description ?? '',
+            inputSchema: tool.inputSchema,
+          });
+        }
+      } else {
+        // Server not connected or no tools discovered yet - show from DB configs
+        const serverConfigs = toolConfigurations.filter(tc => tc.serverId === server.id);
+        if (serverConfigs.length > 0) {
+          for (const tc of serverConfigs) {
+            if (!tc.enabled) continue;
+            tools.push({
+              name: tc.displayName ?? tc.toolName,
+              description: (tc.description as string) ?? '',
+              inputSchema: { type: 'object', properties: {} },
+            });
+          }
+        }
+      }
     }
 
     return tools;
+  }
+
+  // Resolve which server owns a tool in a namespace, for proxying calls.
+  async function resolveToolServer(
+    namespaceId: string,
+    toolName: string,
+  ): Promise<{ serverId: string; originalToolName: string } | null> {
+    const servers = await services.namespaceService.listServers(namespaceId);
+    const toolConfigurations = await services.toolConfigService.getToolConfigs(namespaceId);
+    const cm = services.connectionManager;
+
+    // First check tool configs for display name matches
+    for (const tc of toolConfigurations) {
+      if (!tc.enabled) continue;
+      if (tc.displayName === toolName || tc.toolName === toolName) {
+        return { serverId: tc.serverId, originalToolName: tc.toolName };
+      }
+    }
+
+    // Fall back to checking connected server tools directly
+    if (cm) {
+      for (const server of servers) {
+        const client = cm.getClient(server.id);
+        if (!client) continue;
+        const match = client.tools.find(t => t.name === toolName);
+        if (match) {
+          return { serverId: server.id, originalToolName: match.name };
+        }
+      }
+    }
+
+    return null;
   }
 
   // Format an MCP JSON-RPC response
@@ -203,14 +252,28 @@ export function createMCPProtocolRouter(services: MCPProtocolServices): Router {
           return jsonrpcError(id, -32602, 'Missing tool name');
         }
 
-        // Proxy the tool call to the appropriate server
-        // For now, return a placeholder indicating the tool was invoked
-        return jsonrpcResponse(id, {
-          content: [{
-            type: 'text',
-            text: `Tool "${toolName}" invoked via namespace. Server-side proxying not yet connected.`,
-          }],
-        });
+        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>;
+        const cm = services.connectionManager;
+
+        // Resolve which server owns this tool
+        const resolved = await resolveToolServer(namespaceId, toolName);
+        if (!resolved) {
+          return jsonrpcError(id, -32602, `Tool "${toolName}" not found in namespace`);
+        }
+
+        // Get the connected client for that server
+        const client = cm?.getClient(resolved.serverId);
+        if (!client) {
+          return jsonrpcError(id, -32603, `Server for tool "${toolName}" is not connected`);
+        }
+
+        // Proxy the call to the real MCP server
+        try {
+          const result = await client.callTool(resolved.originalToolName, toolArgs);
+          return jsonrpcResponse(id, result);
+        } catch (err) {
+          return jsonrpcError(id, -32603, `Tool call failed: ${(err as Error).message}`);
+        }
       }
 
       case 'notifications/initialized':
@@ -333,16 +396,35 @@ export function createMCPProtocolRouter(services: MCPProtocolServices): Router {
     }
 
     const servers = await services.namespaceService.listServers(endpoint.namespaceId);
+    const cm = services.connectionManager;
+
+    const serverStatuses = servers.map(s => {
+      const info = cm?.getConnectionInfo(s.id);
+      return {
+        id: s.id,
+        name: s.name,
+        connected: info?.status === 'connected',
+        status: info?.status ?? 'unknown',
+        tools: info?.tools.length ?? 0,
+        lastPingMs: info?.lastPingMs ?? null,
+      };
+    });
+
+    const connectedCount = serverStatuses.filter(s => s.connected).length;
 
     res.json({
-      status: 'ok',
+      status: connectedCount > 0 ? 'ok' : 'degraded',
       endpoint: {
         id: endpoint.id,
         name: endpoint.name,
         transport: endpoint.transport,
         isActive: endpoint.isActive,
       },
-      servers: servers.length,
+      servers: {
+        total: servers.length,
+        connected: connectedCount,
+        details: serverStatuses,
+      },
     });
   });
 
