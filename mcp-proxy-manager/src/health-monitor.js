@@ -30,7 +30,6 @@ class HealthMonitor {
     this.cronJob = cron.schedule(schedule, async () => {
       await this.performHealthChecks();
     }, {
-      scheduled: true,
       timezone: 'UTC'
     });
 
