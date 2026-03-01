@@ -1,0 +1,36 @@
+# MCP Platform Configuration
+# Copy to .env.platform and customize for your environment
+
+# Platform port (default: 3001)
+PLATFORM_PORT=3001
+
+# Environment
+NODE_ENV=production
+
+# Auth secret (MUST change in production)
+BETTER_AUTH_SECRET=change-me-to-a-random-secret
+
+# Secrets encryption master key (MUST set in production)
+# Generate with: openssl rand -hex 32
+SECRETS_MASTER_KEY=
+
+# CORS allowed origins
+ALLOWED_ORIGINS=http://localhost:3001
+
+# Claude Desktop config path (relative to config/ volume)
+CLAUDE_CONFIG_PATH=/config/claude_desktop_config.json
+
+# Optional: Google OAuth
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# Optional: GitHub OAuth
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+# Legacy proxy manager
+MANAGER_PORT=3001
+MCP_PROXY_TYPE=mcpo
+MCP_PROXY_MODE=unified
+PORT_RANGE_START=50000
+PORT_RANGE_END=50300

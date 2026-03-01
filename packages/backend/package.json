@@ -2,19 +2,42 @@
   "name": "@mcp-platform/backend",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
-    "test": "jest"
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "start:legacy": "node dist/index.js",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest --passWithNoTests",
+    "test:watch": "NODE_OPTIONS='--experimental-vm-modules' jest --watch",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@mcp-platform/db": "workspace:*",
     "@mcp-platform/shared": "workspace:*",
-    "@mcp-platform/db": "workspace:*"
+    "@trpc/server": "^11.11.0",
+    "axios": "^1.13.6",
+    "better-auth": "^1.2.0",
+    "chokidar": "^5.0.0",
+    "express": "^5.0.0",
+    "express-rate-limit": "^8.2.1",
+    "node-cron": "^4.0.0",
+    "ws": "^8.19.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
-    "tsx": "^4.19.0"
+    "@jest/globals": "^30.2.0",
+    "@swc/core": "^1.15.18",
+    "@swc/jest": "^0.2.39",
+    "@types/express": "^5.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "jest": "^30.0.0",
+    "ts-jest": "^29.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
   }
 }

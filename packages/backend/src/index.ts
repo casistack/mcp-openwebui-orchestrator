@@ -1,3 +1,939 @@
-// Backend entry point - will be populated during Phase 1 migration
-// The existing mcp-proxy-manager/src/index.js continues to run independently
-export {};
+import express, { type Request, type Response, type NextFunction } from 'express';
+import chokidar from 'chokidar';
+import path from 'path';
+import rateLimit from 'express-rate-limit';
+
+import { ConfigParser, type ParsedMCPServer } from './core/config-parser.js';
+import { PortManager } from './core/port-manager.js';
+import { ProxyManager } from './core/proxy-manager.js';
+import { HealthMonitor } from './core/health-monitor.js';
+import { EnvironmentManager } from './core/environment-manager.js';
+import { ContainerEnvironmentManager } from './core/container-env-manager.js';
+import { ModeDetector } from './core/mode-detector.js';
+import { UnifiedProxyManager } from './core/unified-proxy-manager.js';
+import { MultiTransportUnifiedProxyManager } from './core/multi-transport-unified-proxy-manager.js';
+import { ConfigValidator } from './core/config-validator.js';
+import { Logger, MCPError, ErrorCodes } from './core/error-handler.js';
+
+interface StatusResponse {
+  mode: string;
+  status: string;
+  timestamp: Date;
+  proxies?: unknown[];
+  unifiedProxy?: unknown;
+  serverRoutes?: unknown[];
+  summary: {
+    total: number;
+    running: number;
+    healthy: number;
+    failed: number;
+    skipped: number;
+  };
+  ports: unknown;
+  config: unknown;
+  proxyType: string;
+  fallbackStats?: unknown;
+  transports?: unknown;
+  enabledTransports?: unknown;
+}
+
+function getParam(param: string | string[] | undefined): string {
+  if (Array.isArray(param)) return param[0];
+  return param ?? '';
+}
+
+export class MCPProxyManagerApp {
+  private app: express.Application;
+  private port: number | string;
+  private configPath: string;
+  private proxyType: string;
+  private portRangeStart: number;
+  private portRangeEnd: number;
+  private modeDetector: ModeDetector;
+  private configParser: ConfigParser;
+  private portManager: PortManager;
+  private environmentManager: EnvironmentManager;
+  private containerEnvManager: ContainerEnvironmentManager;
+  private proxyManager!: ProxyManager;
+  private healthMonitor!: HealthMonitor;
+  private unifiedProxyManager!: UnifiedProxyManager | MultiTransportUnifiedProxyManager;
+  private currentServers: Map<string, ParsedMCPServer>;
+  private configWatcher: ReturnType<typeof chokidar.watch> | null;
+  private serverControlLimiter!: ReturnType<typeof rateLimit>;
+
+  constructor() {
+    this.app = express();
+    this.port = process.env.MANAGER_PORT || 3001;
+    this.configPath = process.env.CLAUDE_CONFIG_PATH || '/config/claude_desktop_config.json';
+    this.proxyType = process.env.MCP_PROXY_TYPE || 'mcpo';
+    this.portRangeStart = parseInt(process.env.PORT_RANGE_START || '4200', 10);
+    this.portRangeEnd = parseInt(process.env.PORT_RANGE_END || '4400', 10);
+    this.currentServers = new Map();
+    this.configWatcher = null;
+
+    this.modeDetector = new ModeDetector();
+    console.log(`MCP Proxy Mode: ${this.modeDetector.getMode()}`);
+    console.log(`Mode: ${this.modeDetector.getModeDescription()}`);
+
+    this.validateMultiTransportConfig();
+
+    this.configParser = new ConfigParser(this.configPath);
+    this.portManager = new PortManager(this.portRangeStart, this.portRangeEnd);
+    this.environmentManager = new EnvironmentManager();
+    this.containerEnvManager = new ContainerEnvironmentManager(this.environmentManager);
+
+    if (this.modeDetector.isIndividualMode()) {
+      console.log('Individual Mode: OpenAPI only');
+      this.proxyManager = new ProxyManager(this.portManager, this.proxyType);
+      this.healthMonitor = new HealthMonitor(this.proxyManager, this.configParser);
+    } else {
+      const multiTransportEnabled = process.env.ENABLE_MULTI_TRANSPORT === 'true';
+      if (multiTransportEnabled) {
+        console.log('Unified Mode with Multi-Transport');
+        this.unifiedProxyManager = new MultiTransportUnifiedProxyManager(this.configPath, this.portManager);
+      } else {
+        console.log('Unified Mode: OpenAPI only');
+        this.unifiedProxyManager = new UnifiedProxyManager(this.configPath, this.portManager);
+      }
+    }
+
+    this.validateSecurityConfiguration();
+    this.setupExpress();
+    this.setupGracefulShutdown();
+  }
+
+  private validateMultiTransportConfig(): void {
+    const multiTransportEnabled = process.env.ENABLE_MULTI_TRANSPORT === 'true';
+    const isIndividualMode = this.modeDetector.isIndividualMode();
+
+    if (multiTransportEnabled && isIndividualMode) {
+      console.error('CONFIGURATION ERROR: Multi-transport is only available in unified mode');
+      console.error('   Set MCP_PROXY_MODE=unified to use multi-transport features');
+      console.error('   Or set ENABLE_MULTI_TRANSPORT=false to use individual mode');
+      throw new Error('Multi-transport requires unified mode');
+    }
+
+    if (multiTransportEnabled) {
+      console.log('Multi-transport enabled in unified mode');
+    }
+  }
+
+  private validateSecurityConfiguration(): void {
+    const insecureValues = [
+      'your-secret-key-here',
+      'CHANGE_THIS_TO_SECURE_RANDOM_STRING',
+      'default',
+      'secret',
+      'password',
+      '123456',
+    ];
+
+    const secretKey = process.env.WEBUI_SECRET_KEY;
+    if (secretKey && insecureValues.some(insecure => secretKey.toLowerCase().includes(insecure.toLowerCase()))) {
+      console.warn('WARNING: WEBUI_SECRET_KEY appears to use a default or insecure value');
+      console.warn('   Generate a secure key with: openssl rand -hex 32');
+    }
+
+    if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+      console.warn('WARNING: ALLOWED_ORIGINS not set in production environment');
+      console.warn('   Set specific allowed origins to prevent CSRF attacks');
+    }
+
+    const portStart = parseInt(process.env.PORT_RANGE_START || String(this.portRangeStart), 10);
+    const portEnd = parseInt(process.env.PORT_RANGE_END || String(this.portRangeEnd), 10);
+
+    try {
+      ConfigValidator.validatePortRange(portStart, portEnd);
+    } catch (error) {
+      Logger.error('Port range validation failed', error as Error);
+      throw new MCPError('Invalid port range configuration', ErrorCodes.CONFIG_ERROR, { portStart, portEnd });
+    }
+  }
+
+  private setupExpress(): void {
+    this.app.set('trust proxy', true);
+    this.app.use(express.json({ limit: '10mb' }));
+    this.app.use(this.validateInput.bind(this));
+    this.setupRateLimiting();
+
+    // CORS middleware
+    this.app.use((_req: Request, res: Response, next: NextFunction) => {
+      const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(origin => origin.trim()) || [
+        'http://localhost:3000',
+        'http://localhost:8080',
+        'http://localhost:5000',
+      ];
+
+      const origin = _req.headers.origin;
+      if (origin && allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else if (!origin) {
+        res.header('Access-Control-Allow-Origin', allowedOrigins[0]);
+      }
+
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      next();
+    });
+
+    // Static files for dashboard
+    const staticDir = path.join(import.meta.dirname ?? '.', 'static');
+    this.app.use('/static', express.static(staticDir));
+
+    this.app.get('/dashboard', (_req: Request, res: Response) => {
+      res.sendFile(path.join(staticDir, 'dashboard.html'));
+    });
+
+    // Routes
+    this.app.get('/health', this.handleHealthCheck.bind(this));
+    this.app.get('/status', this.handleStatus.bind(this));
+    this.app.get('/servers', this.handleGetServers.bind(this));
+    this.app.get('/servers/:id/health', this.handleServerHealth.bind(this));
+    this.app.post('/servers/:id/restart', this.serverControlLimiter, this.handleRestartServer.bind(this));
+    this.app.post('/servers/:id/stop', this.serverControlLimiter, this.handleStopServer.bind(this));
+    this.app.post('/servers/:id/start', this.serverControlLimiter, this.handleStartServer.bind(this));
+    this.app.get('/config', this.handleGetConfig.bind(this));
+    this.app.post('/config/reload', this.serverControlLimiter, this.handleReloadConfig.bind(this));
+    this.app.get('/openapi-endpoints', this.handleGetOpenAPIEndpoints.bind(this));
+    this.app.get('/ports', this.handleGetPorts.bind(this));
+    this.app.get('/installation-stats', this.handleGetInstallationStats.bind(this));
+    this.app.post('/servers/:id/clean-cache', this.handleCleanServerCache.bind(this));
+    this.app.post('/system/clean-cache', this.handleCleanSystemCache.bind(this));
+
+    // Container environment management
+    this.app.get('/container-environment', this.handleGetContainerEnvironment.bind(this));
+    this.app.post('/container-environment', this.handleSetContainerEnvironment.bind(this));
+    this.app.post('/container-environment/:serverId', this.handleSetServerContainerEnvironment.bind(this));
+    this.app.get('/container-environment/test', this.handleTestContainerEnvironment.bind(this));
+
+    // Default route
+    this.app.get('/', (_req: Request, res: Response) => {
+      res.json({
+        name: 'MCP Proxy Manager',
+        version: '1.0.0',
+        status: 'running',
+        proxyType: this.proxyType,
+        configPath: this.configPath,
+        endpoints: {
+          health: '/health',
+          status: '/status',
+          servers: '/servers',
+          config: '/config',
+          openapi: '/openapi-endpoints',
+          dashboard: '/dashboard',
+        },
+        dashboard: {
+          url: '/dashboard',
+          description: 'Web-based status dashboard for monitoring servers and OpenWebUI integration',
+        },
+      });
+    });
+
+    // Global error handler (Express 5)
+    this.app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
+      console.error(`[Express] Unhandled error on ${_req.method} ${_req.path}:`, err.message);
+      res.status(err.status || 500).json({
+        error: err.message || 'Internal server error',
+      });
+    });
+  }
+
+  private setupRateLimiting(): void {
+    this.serverControlLimiter = rateLimit({
+      windowMs: 2 * 60 * 1000,
+      limit: 5,
+      standardHeaders: true,
+      legacyHeaders: false,
+      handler: (_req, res, _next, options) => {
+        res.set('X-RateLimit-Applied', 'server-control-debug');
+        return res.status(options.statusCode).json({
+          error: 'Too many server control operations. Please wait before trying again.',
+        });
+      },
+    });
+
+    console.log('Rate limiting configured: ONLY for destructive server operations via per-route attachment');
+  }
+
+  private validateInput(req: Request, res: Response, next: NextFunction): void {
+    if (getParam(req.params.id) && !this.isValidServerId(getParam(req.params.id))) {
+      res.status(400).json({
+        error: 'Invalid server ID format. Server ID must be alphanumeric with hyphens and underscores only.',
+      });
+      return;
+    }
+
+    if (getParam(req.params.serverId) && !this.isValidServerId(getParam(req.params.serverId))) {
+      res.status(400).json({
+        error: 'Invalid server ID format. Server ID must be alphanumeric with hyphens and underscores only.',
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.body && Object.keys(req.body as Record<string, unknown>).length > 0) {
+      if (!this.isValidJsonBody(req.body)) {
+        res.status(400).json({
+          error: 'Invalid request body format or contains potentially dangerous content.',
+        });
+        return;
+      }
+    }
+
+    next();
+  }
+
+  private isValidServerId(serverId: string): boolean {
+    const serverIdRegex = /^[a-zA-Z0-9_.-]{1,100}$/;
+    return serverIdRegex.test(serverId) && !serverId.includes('..') && !serverId.startsWith('.');
+  }
+
+  private isValidJsonBody(body: unknown): boolean {
+    if (typeof body !== 'object' || body === null) {
+      return false;
+    }
+
+    const dangerousPatterns = [
+      /[;&|`$(){}[\]\\]/,
+      /\.\./,
+      /<script|javascript:|data:/i,
+      /\x00/,
+    ];
+
+    const checkValue = (value: unknown): boolean => {
+      if (typeof value === 'string') {
+        return !dangerousPatterns.some(pattern => pattern.test(value));
+      } else if (typeof value === 'object' && value !== null) {
+        return Object.values(value as Record<string, unknown>).every(checkValue);
+      }
+      return true;
+    };
+
+    return Object.values(body as Record<string, unknown>).every(checkValue);
+  }
+
+  async start(): Promise<void> {
+    try {
+      console.log('Starting MCP Proxy Manager...');
+      console.log(`Config path: ${this.configPath}`);
+      console.log(`Port range: ${this.portRangeStart}-${this.portRangeEnd}`);
+
+      if (this.modeDetector.isIndividualMode()) {
+        console.log(`Proxy type: ${this.proxyType}`);
+        await this.loadAndStartProxies();
+        this.startConfigWatcher();
+        this.healthMonitor.startMonitoring();
+      } else {
+        console.log('Using unified MCPO mode');
+        const success = await this.unifiedProxyManager.start();
+        if (!success) {
+          throw new Error('Failed to start unified MCPO');
+        }
+        this.startConfigWatcher();
+      }
+
+      this.app.listen(this.port, () => {
+        console.log(`Management API server running on http://0.0.0.0:${this.port}`);
+        console.log('MCP Proxy Manager started successfully');
+      });
+    } catch (error) {
+      console.error('Failed to start MCP Proxy Manager:', (error as Error).message);
+      process.exit(1);
+    }
+  }
+
+  private async loadAndStartProxies(): Promise<void> {
+    if (!this.modeDetector.isIndividualMode()) {
+      return;
+    }
+
+    try {
+      const servers = await this.configParser.getMCPServers();
+      console.log(`Found ${servers.length} MCP servers in configuration`);
+
+      if (servers.length === 0 && this.currentServers.size > 0) {
+        console.warn('Config parsing returned 0 servers, waiting 2 seconds and retrying...');
+        await this.sleep(2000);
+
+        const retryServers = await this.configParser.getMCPServers();
+        if (retryServers.length === 0) {
+          console.warn('Retry also returned 0 servers. Skipping reconciliation to prevent mass shutdown.');
+          return;
+        }
+
+        console.log(`Retry found ${retryServers.length} MCP servers in configuration`);
+        await this.reconcileProxies(retryServers);
+      } else {
+        await this.reconcileProxies(servers);
+      }
+    } catch (error) {
+      console.error('Error loading and starting proxies:', (error as Error).message);
+      console.warn('Skipping reconciliation due to error to prevent service disruption');
+    }
+  }
+
+  private async reconcileProxies(desiredServers: ParsedMCPServer[]): Promise<void> {
+    const currentServerIds = new Set(this.currentServers.keys());
+    const desiredServerIds = new Set(desiredServers.map(s => s.id));
+
+    if (desiredServers.length === 0 && currentServerIds.size > 2) {
+      console.warn(`Skipping reconciliation: Found 0 desired servers but ${currentServerIds.size} running servers. This likely indicates a config parsing error.`);
+      return;
+    }
+
+    const serversToRemove = Array.from(currentServerIds).filter(id => !desiredServerIds.has(id));
+    if (serversToRemove.length > 0) {
+      console.log(`Stopping ${serversToRemove.length} removed servers...`);
+
+      for (const serverId of serversToRemove) {
+        console.log(`Removing server: ${serverId}`);
+        await this.proxyManager.stopProxy(serverId);
+        this.currentServers.delete(serverId);
+
+        if (serversToRemove.length > 1) {
+          await this.sleep(2000);
+        }
+      }
+
+      if (serversToRemove.length > 3) {
+        console.log(`Waiting additional 5 seconds after stopping ${serversToRemove.length} servers...`);
+        await this.sleep(5000);
+      }
+    }
+
+    for (const server of desiredServers) {
+      const existingServer = this.currentServers.get(server.id);
+
+      const updated = this.environmentManager.updateServerConfigWithEnvFile(server);
+
+      const globalEnvVars = this.containerEnvManager.getGlobalEnvironmentVariables();
+      const globalEnvPlainValues: Record<string, string> = {};
+      for (const [key, data] of Object.entries(globalEnvVars)) {
+        globalEnvPlainValues[key] = data.value;
+      }
+
+      const enhancedServer: ParsedMCPServer = {
+        ...server,
+        ...updated,
+        env: {
+          ...globalEnvPlainValues,
+          ...updated.env,
+        },
+      };
+
+      if (!existingServer) {
+        console.log(`Adding server: ${server.id}`);
+        const started = await this.proxyManager.startProxy(enhancedServer);
+        if (started) {
+          this.currentServers.set(server.id, enhancedServer);
+        }
+      } else {
+        const configChanged = JSON.stringify(existingServer) !== JSON.stringify(enhancedServer);
+        if (configChanged) {
+          console.log(`Updating server: ${server.id}`);
+          await this.proxyManager.stopProxy(server.id);
+          const started = await this.proxyManager.startProxy(enhancedServer);
+          if (started) {
+            this.currentServers.set(server.id, enhancedServer);
+          }
+        }
+      }
+    }
+
+    console.log(`Reconciliation complete. Running ${this.currentServers.size} servers`);
+  }
+
+  private startConfigWatcher(): void {
+    if (this.configWatcher) {
+      this.configWatcher.close();
+    }
+
+    this.configWatcher = chokidar.watch(this.configPath, {
+      persistent: true,
+      usePolling: true,
+      interval: 1000,
+    });
+
+    this.configWatcher.on('change', async () => {
+      console.log('Configuration file changed, reloading...');
+
+      if (this.modeDetector.isIndividualMode()) {
+        await this.loadAndStartProxies();
+      } else {
+        console.log('Unified mode: MCPO hot-reload should handle config changes automatically');
+      }
+    });
+
+    this.configWatcher.on('error', (error: unknown) => {
+      console.error('Configuration watcher error:', (error as Error).message);
+    });
+
+    console.log(`Watching configuration file: ${this.configPath}`);
+  }
+
+  // Route handlers
+
+  private handleHealthCheck(_req: Request, res: Response): void {
+    res.json({ status: 'healthy', timestamp: new Date() });
+  }
+
+  private async handleStatus(_req: Request, res: Response): Promise<void> {
+    try {
+      const portStats = this.portManager.getStats();
+      const configStats = await this.configParser.getConfigStats();
+
+      if (this.modeDetector.isIndividualMode()) {
+        const proxyStatuses = this.proxyManager.getProxyStatuses();
+        const allConfiguredServers = await this.configParser.getMCPServers();
+        const fallbackStats = this.proxyManager.getFallbackStats();
+
+        const comprehensiveProxies = allConfiguredServers.map(server => {
+          const runningProxy = proxyStatuses.find(p => p.serverId === server.id);
+          const fallbackInfo = fallbackStats[server.id];
+
+          if (runningProxy) {
+            return {
+              ...runningProxy,
+              configured: true,
+              serverConfig: server,
+              fallbackInfo,
+            };
+          }
+
+          const needsProxy = server.needsProxy !== false;
+          let reason = needsProxy
+            ? 'Proxy startup failed or maximum retries exceeded'
+            : 'Server uses SSE/direct connection, no proxy needed';
+          let errorType = 'unknown';
+
+          if (needsProxy) {
+            const errorDetails = this.proxyManager.getServerError(server.id);
+            if (errorDetails) {
+              reason = errorDetails.lastError;
+              errorType = errorDetails.errorType;
+            }
+          }
+
+          let displayProxyType: string;
+          if (server.transport === 'sse') {
+            displayProxyType = 'SSE (Proxied)';
+          } else if (!needsProxy) {
+            displayProxyType = 'Direct';
+          } else {
+            displayProxyType = server.proxyType || this.proxyType;
+          }
+
+          return {
+            serverId: server.id,
+            configured: true,
+            healthy: false,
+            port: null,
+            startTime: null,
+            restartCount: 0,
+            uptime: 0,
+            endpoint: null,
+            proxyType: displayProxyType,
+            fallbackUsed: false,
+            authError: errorType === 'auth',
+            serverConfig: server,
+            needsProxy,
+            status: needsProxy ? 'failed' : 'skipped',
+            reason,
+            errorType,
+            fallbackInfo,
+          };
+        });
+
+        res.json({
+          mode: 'individual',
+          status: 'running',
+          timestamp: new Date(),
+          proxies: comprehensiveProxies,
+          summary: {
+            total: allConfiguredServers.length,
+            running: proxyStatuses.length,
+            healthy: proxyStatuses.filter(p => p.healthy).length,
+            failed: comprehensiveProxies.filter(p => p.status === 'failed').length,
+            skipped: comprehensiveProxies.filter(p => p.status === 'skipped').length,
+          },
+          ports: portStats,
+          config: configStats,
+          proxyType: this.proxyType,
+          fallbackStats,
+        });
+      } else {
+        const unifiedStatus = this.unifiedProxyManager.getStatus();
+        const serverRoutes = this.unifiedProxyManager.getServerRoutes();
+
+        const isMultiTransport = 'getTransportStatus' in this.unifiedProxyManager;
+        const response: StatusResponse = {
+          mode: isMultiTransport ? 'unified-multi-transport' : 'unified',
+          status: 'running',
+          timestamp: new Date(),
+          unifiedProxy: unifiedStatus,
+          serverRoutes,
+          summary: {
+            total: unifiedStatus.totalServers,
+            running: unifiedStatus.healthy ? 1 : 0,
+            healthy: unifiedStatus.healthy ? unifiedStatus.totalServers : 0,
+            failed: unifiedStatus.healthy ? 0 : unifiedStatus.totalServers,
+            skipped: 0,
+          },
+          ports: portStats,
+          config: configStats,
+          proxyType: isMultiTransport ? 'unified-multi-transport' : 'unified-mcpo',
+        };
+
+        if (isMultiTransport) {
+          const mtManager = this.unifiedProxyManager as MultiTransportUnifiedProxyManager;
+          response.transports = mtManager.getTransportStatus();
+          response.enabledTransports = mtManager.getEnabledTransports();
+        }
+
+        res.json(response);
+      }
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private handleGetServers(_req: Request, res: Response): void {
+    const servers = Array.from(this.currentServers.values());
+    const proxyStatuses = this.proxyManager.getProxyStatuses();
+
+    const serversWithStatus = servers.map(server => {
+      const status = proxyStatuses.find(p => p.serverId === server.id);
+      return {
+        ...server,
+        status: status || { healthy: false, port: null },
+      };
+    });
+
+    res.json(serversWithStatus);
+  }
+
+  private handleServerHealth(req: Request, res: Response): void {
+    const serverId = getParam(req.params.id);
+    const healthStats = this.healthMonitor.getServerHealthStats(serverId);
+
+    if (!healthStats) {
+      res.status(404).json({ error: 'Server not found' });
+      return;
+    }
+
+    res.json(healthStats);
+  }
+
+  private async handleRestartServer(req: Request, res: Response): Promise<void> {
+    try {
+      const serverId = getParam(req.params.id);
+
+      if (!this.currentServers.has(serverId)) {
+        res.status(404).json({ error: 'Server not found' });
+        return;
+      }
+
+      const success = await this.proxyManager.restartProxy(serverId);
+      res.json({ success, message: success ? 'Server restarted' : 'Failed to restart server' });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private async handleStopServer(req: Request, res: Response): Promise<void> {
+    try {
+      const serverId = getParam(req.params.id);
+
+      if (!this.currentServers.has(serverId)) {
+        res.status(404).json({ error: 'Server not found' });
+        return;
+      }
+
+      const success = await this.proxyManager.stopProxy(serverId);
+      if (success) {
+        this.currentServers.delete(serverId);
+      }
+
+      res.json({ success, message: success ? 'Server stopped' : 'Failed to stop server' });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private async handleStartServer(req: Request, res: Response): Promise<void> {
+    try {
+      const serverId = getParam(req.params.id);
+
+      const servers = await this.configParser.getMCPServers();
+      const serverConfig = servers.find(s => s.id === serverId);
+
+      if (!serverConfig) {
+        res.status(404).json({ error: 'Server configuration not found' });
+        return;
+      }
+
+      const success = await this.proxyManager.startProxy(serverConfig);
+      if (success) {
+        this.currentServers.set(serverId, serverConfig);
+      }
+
+      res.json({ success, message: success ? 'Server started' : 'Failed to start server' });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private async handleGetConfig(_req: Request, res: Response): Promise<void> {
+    try {
+      const configStats = await this.configParser.getConfigStats();
+      const servers = await this.configParser.getMCPServers();
+
+      res.json({
+        ...configStats,
+        servers,
+      });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private async handleReloadConfig(_req: Request, res: Response): Promise<void> {
+    try {
+      await this.loadAndStartProxies();
+      res.json({ success: true, message: 'Configuration reloaded successfully' });
+    } catch (error) {
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  }
+
+  private handleGetOpenAPIEndpoints(_req: Request, res: Response): void {
+    let endpoints: unknown[] = [];
+
+    if (this.modeDetector.isIndividualMode()) {
+      const proxyStatuses = this.proxyManager.getProxyStatuses();
+      endpoints = proxyStatuses
+        .filter(proxy => proxy.healthy)
+        .map(proxy => ({
+          name: proxy.serverId,
+          url: `http://localhost:${proxy.port}`,
+          openapi_url: `http://localhost:${proxy.port}/openapi.json`,
+          docs_url: `http://localhost:${proxy.port}/docs`,
+          proxyType: proxy.proxyType || 'mcpo',
+        }));
+    } else {
+      endpoints = this.unifiedProxyManager.getOpenAPIEndpoints();
+    }
+
+    res.json({
+      mode: this.modeDetector.getMode(),
+      endpoints,
+      count: endpoints.length,
+      instructions: {
+        openwebui: this.modeDetector.isIndividualMode()
+          ? 'Add these URLs as External OpenAPI servers in OpenWebUI admin panel'
+          : 'Add these route-based URLs as External OpenAPI servers in OpenWebUI admin panel',
+        format: this.modeDetector.isIndividualMode()
+          ? 'Each endpoint provides OpenAPI-compatible REST API for MCP tools'
+          : 'Each route provides OpenAPI-compatible REST API for MCP tools via unified MCPO',
+      },
+    });
+  }
+
+  private handleGetPorts(_req: Request, res: Response): void {
+    const portStats = this.portManager.getStats();
+    const allocatedPorts = this.portManager.getAllocatedPorts();
+
+    res.json({
+      ...portStats,
+      range: {
+        start: this.portRangeStart,
+        end: this.portRangeEnd,
+      },
+      allocated: allocatedPorts,
+    });
+  }
+
+  private handleGetInstallationStats(_req: Request, res: Response): void {
+    const stats = this.proxyManager.getInstallationStats();
+    res.json({
+      timestamp: new Date(),
+      ...stats,
+    });
+  }
+
+  private async handleCleanServerCache(req: Request, res: Response): Promise<void> {
+    const serverId = getParam(req.params.id);
+
+    if (!this.currentServers.has(serverId)) {
+      res.status(404).json({ error: 'Server not found' });
+      return;
+    }
+
+    try {
+      const success = await this.proxyManager.cleanServerCache(serverId);
+      res.json({
+        success,
+        message: success ? `Cache cleaned for ${serverId}` : `Failed to clean cache for ${serverId}`,
+      });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private async handleCleanSystemCache(_req: Request, res: Response): Promise<void> {
+    try {
+      const success = await this.proxyManager.installationManager.cleanNpmCache();
+      res.json({
+        success,
+        message: success ? 'System cache cleaned successfully' : 'Failed to clean system cache',
+      });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private handleGetContainerEnvironment(_req: Request, res: Response): void {
+    try {
+      const globalVars = this.containerEnvManager.getGlobalEnvironmentVariables();
+      const stats = this.containerEnvManager.getStats();
+
+      res.json({
+        timestamp: new Date(),
+        globalVariables: globalVars,
+        stats,
+      });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private async handleSetContainerEnvironment(req: Request, res: Response): Promise<void> {
+    try {
+      const { key, value, action } = req.body as { key?: string; value?: string | null; action?: string };
+
+      if (!key || typeof key !== 'string') {
+        res.status(400).json({ error: 'Environment variable key is required' });
+        return;
+      }
+
+      let success = false;
+      let message = '';
+
+      if (action === 'unset' || value === null || value === undefined || value === '') {
+        success = await this.containerEnvManager.unsetGlobalEnvironmentVariable(key);
+        message = success ? `Global environment variable ${key} removed` : `Failed to remove ${key}`;
+      } else {
+        if (typeof value !== 'string') {
+          res.status(400).json({ error: 'Environment variable value must be a string' });
+          return;
+        }
+
+        success = await this.containerEnvManager.setGlobalEnvironmentVariable(key, value);
+        message = success ? `Global environment variable ${key} set` : `Failed to set ${key}`;
+      }
+
+      if (success) {
+        res.json({
+          success: true,
+          message,
+          key,
+          action: action === 'unset' || !value ? 'unset' : 'set',
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: message,
+        });
+      }
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private async handleSetServerContainerEnvironment(req: Request, res: Response): Promise<void> {
+    try {
+      const serverId = getParam(req.params.serverId);
+
+      if (!serverId) {
+        res.status(400).json({ error: 'Server ID is required' });
+        return;
+      }
+
+      const success = await this.containerEnvManager.setServerGlobalEnvironment(serverId);
+
+      if (success) {
+        res.json({
+          success: true,
+          message: `Global environment variables set for ${serverId}`,
+          serverId,
+          nextSteps: 'Environment variables are now accessible globally in the container via $VARIABLE_NAME',
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: `Failed to set global environment variables for ${serverId}`,
+        });
+      }
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private async handleTestContainerEnvironment(_req: Request, res: Response): Promise<void> {
+    try {
+      const testResult = await this.containerEnvManager.testGlobalEnvironment();
+
+      res.json({
+        timestamp: new Date(),
+        testResult,
+        instructions: {
+          description: 'Test whether global environment variables are accessible in new shell sessions',
+          usage: 'Use this endpoint to verify that container-level environment variables work correctly',
+          troubleshooting: testResult.containerEnvironmentWorking
+            ? 'Container environment is working correctly'
+            : 'Container environment may need configuration adjustments',
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private setupGracefulShutdown(): void {
+    const gracefulShutdown = async (signal: string) => {
+      console.log(`\nReceived ${signal}, shutting down gracefully...`);
+
+      if (this.configWatcher) {
+        this.configWatcher.close();
+      }
+
+      if (this.modeDetector.isIndividualMode()) {
+        this.healthMonitor.stopMonitoring();
+        await this.proxyManager.stopAllProxies();
+        this.proxyManager.cleanup();
+      } else {
+        await this.unifiedProxyManager.stop();
+      }
+
+      console.log('Graceful shutdown complete');
+      process.exit(0);
+    };
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  }
+}
+
+// ESM main module detection
+const isMainModule = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
+if (isMainModule) {
+  const app = new MCPProxyManagerApp();
+  app.start().catch(error => {
+    console.error('Failed to start application:', error);
+    process.exit(1);
+  });
+}

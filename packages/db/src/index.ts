@@ -1,2 +1,2 @@
 export * from './schema';
-export { createDatabase } from './adapters';
+export { createDatabase, type AppDatabase, type DatabaseType, type DatabaseConfig } from './adapters';

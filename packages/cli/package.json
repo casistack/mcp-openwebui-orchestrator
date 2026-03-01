@@ -2,18 +2,21 @@
   "name": "@mcp-platform/cli",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "bin": {
     "mcp-platform": "./dist/index.js"
   },
   "scripts": {
-    "build": "echo 'CLI package: setup pending (Phase 5)'",
-    "dev": "echo 'CLI package: setup pending (Phase 5)'"
+    "build": "tsc",
+    "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "@mcp-platform/shared": "workspace:*"
+    "@mcp-platform/shared": "workspace:*",
+    "commander": "^13.1.0"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
   }
 }

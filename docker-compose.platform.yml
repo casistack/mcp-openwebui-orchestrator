@@ -1,0 +1,106 @@
+services:
+  # MCP Platform Backend (API + Auth + RBAC)
+  platform:
+    build:
+      context: .
+      dockerfile: Dockerfile.platform
+    container_name: mcp-platform
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PLATFORM_PORT:-3001}:3001"
+    volumes:
+      - platform-data:/data
+      - ./config:/config:ro
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_URL=/data/mcp-platform.db
+      - CLAUDE_CONFIG_PATH=${CLAUDE_CONFIG_PATH:-/config/claude_desktop_config.json}
+      - SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY:-}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-change-me-in-production}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      # Optional SSO
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+        reservations:
+          memory: 128M
+          cpus: "0.25"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/auth/ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Legacy MCP Proxy Manager (existing functionality)
+  mcp-proxy-manager:
+    build:
+      context: ./mcp-proxy-manager
+      dockerfile: Dockerfile
+    container_name: mcp-proxy-manager
+    restart: unless-stopped
+    user: mcpuser
+    security_opt:
+      - no-new-privileges:false
+      - seccomp:unconfined
+    tmpfs:
+      - /tmp:exec,size=1g
+    ports:
+      - "127.0.0.1:${MANAGER_PORT:-3002}:${MANAGER_PORT:-3001}"
+      - "127.0.0.1:${PORT_RANGE_START:-50000}-${PORT_RANGE_END:-50300}:${PORT_RANGE_START:-50000}-${PORT_RANGE_END:-50300}"
+    volumes:
+      - ./config:/config:ro
+      - mcpuser-home:/home/mcpuser:rw
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - MANAGER_PORT=${MANAGER_PORT:-3001}
+      - CLAUDE_CONFIG_PATH=${CLAUDE_CONFIG_PATH:-/config/claude_desktop_config.json}
+      - MCP_PROXY_TYPE=${MCP_PROXY_TYPE:-mcpo}
+      - MCP_PROXY_MODE=${MCP_PROXY_MODE:-unified}
+      - PORT_RANGE_START=${PORT_RANGE_START:-50000}
+      - PORT_RANGE_END=${PORT_RANGE_END:-50300}
+      - UV_CACHE_DIR=/home/mcpuser/.cache/uv
+      - UV_TOOL_DIR=/home/mcpuser/.local/share/uv/tools
+      - NPM_CONFIG_CACHE=/home/mcpuser/.cache/npm
+      - NPM_CONFIG_TMP=/app/tmp
+      - TMPDIR=/app/tmp
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: "4.0"
+          pids: 4096
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  platform-data:
+    driver: local
+  mcpuser-home:
+    driver: local
