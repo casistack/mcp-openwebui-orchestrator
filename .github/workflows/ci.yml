@@ -59,7 +59,7 @@ jobs:
     name: Run Tests
     strategy:
       matrix:
-        node-version: [18, 20, 22]  # Test multiple Node versions
+        node-version: [20, 22]  # Test supported Node versions (>=20)
     
     steps:
     - name: Checkout code
