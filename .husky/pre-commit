@@ -1,0 +1,29 @@
+#!/bin/sh
+
+echo "Running pre-commit checks..."
+
+# Run tests from the mcp-proxy-manager directory
+cd mcp-proxy-manager
+
+# Check if node_modules exists
+if [ ! -d "node_modules" ]; then
+  echo "node_modules not found, installing dependencies..."
+  npm install
+fi
+
+# Run the test suite
+echo "Running tests..."
+npm test
+if [ $? -ne 0 ]; then
+  echo "Tests failed. Commit aborted."
+  exit 1
+fi
+
+# Check for hardcoded secrets patterns
+echo "Checking for potential secrets..."
+if git diff --cached --diff-filter=ACM -- '*.js' '*.json' | grep -iE '(api[_-]?key|secret|password|token)\s*[:=]\s*["\x27][a-zA-Z0-9]{16,}' | grep -v 'test\|mock\|example\|placeholder\|REPLACE'; then
+  echo "Potential secrets detected in staged files. Please review."
+  exit 1
+fi
+
+echo "Pre-commit checks passed."

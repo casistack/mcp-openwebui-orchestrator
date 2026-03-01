@@ -30,7 +30,7 @@ updates:
           - "@modelcontextprotocol/*"
           - "*mcp*"
     # Automatic security updates
-    target-branch: "develop"
+    target-branch: "mybranch"
     commit-message:
       prefix: "deps"
       prefix-development: "deps-dev"

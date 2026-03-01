@@ -145,7 +145,7 @@ jobs:
         EOF
     
     - name: Store performance results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: performance-results
@@ -190,7 +190,7 @@ jobs:
         grep -E "(CPU|MEM)" resource-usage.log | tail -10
     
     - name: Upload resource monitoring results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: resource-monitoring
         path: resource-usage.log

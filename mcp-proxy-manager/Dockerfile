@@ -74,10 +74,11 @@ RUN mkdir -p /tmp/build
 COPY . /tmp/build/
 
 # Copy package.json from appropriate location based on build context
-RUN if [ -f "/tmp/build/package.json" ]; then \
-      cp /tmp/build/package*.json ./; \
-    elif [ -f "/tmp/build/mcp-proxy-manager/package.json" ]; then \
+# Prefer mcp-proxy-manager/ subdirectory (CI context) over root package.json (husky wrapper)
+RUN if [ -f "/tmp/build/mcp-proxy-manager/package.json" ]; then \
       cp /tmp/build/mcp-proxy-manager/package*.json ./; \
+    elif [ -f "/tmp/build/package.json" ]; then \
+      cp /tmp/build/package*.json ./; \
     fi
 
 # Install dependencies based on build context and requirements
