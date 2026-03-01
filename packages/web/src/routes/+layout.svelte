@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 
 	const navSections = [
 		{
@@ -65,6 +66,12 @@
 		sidebarOpen = !sidebarOpen;
 	}
 
+	function isActive(href: string): boolean {
+		const path = page.url.pathname;
+		if (href === '/') return path === '/';
+		return path.startsWith(href);
+	}
+
 	const iconPaths: Record<string, string> = {
 		dashboard: 'M4 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5zm10 0a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5zm0 6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-5zM4 13a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2z',
 		health: 'M3.172 5.172a4 4 0 0 1 5.656 0L10 6.343l1.172-1.171a4 4 0 1 1 5.656 5.656L10 17.657l-6.828-6.829a4 4 0 0 1 0-5.656z',
@@ -98,10 +105,10 @@
 		<div class="flex items-center justify-between p-3 border-b border-[var(--color-border)]">
 			{#if sidebarOpen}
 				<div class="min-w-0">
-					<h1 class="text-base font-bold text-white truncate">MCP Platform</h1>
+					<h1 class="text-base font-bold truncate">MCP Platform</h1>
 				</div>
 			{/if}
-			<button onclick={toggleSidebar} class="p-1.5 rounded-md text-[var(--color-text-muted)] hover:text-white hover:bg-[var(--color-border)] transition-colors flex-shrink-0" title="Toggle sidebar">
+			<button onclick={toggleSidebar} class="p-1.5 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors flex-shrink-0" title="Toggle sidebar">
 				<svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
 					{#if sidebarOpen}
 						<path fill-rule="evenodd" d="M3 5a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1zm0 5a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1zm0 5a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1z" clip-rule="evenodd" />
@@ -125,10 +132,15 @@
 					</div>
 				{/if}
 				{#each section.items as item}
+					{@const active = isActive(item.href)}
 					<a
 						href={item.href}
-						class="flex items-center gap-3 mx-2 px-2 py-2 rounded-md text-sm text-[var(--color-text-muted)] hover:text-white hover:bg-[var(--color-border)]/50 transition-colors"
+						class="flex items-center gap-3 mx-2 px-2 py-2 rounded-md text-sm transition-colors
+							{active
+								? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)] font-medium'
+								: 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-border)]/50'}"
 						title={sidebarOpen ? undefined : item.label}
+						onclick={() => mobileMenuOpen = false}
 					>
 						<svg viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5 flex-shrink-0">
 							<path d={iconPaths[item.icon] ?? iconPaths.dashboard} />
@@ -145,7 +157,7 @@
 		<div class="border-t border-[var(--color-border)] p-2">
 			<button
 				onclick={toggleDarkMode}
-				class="flex items-center gap-3 w-full px-2 py-2 rounded-md text-sm text-[var(--color-text-muted)] hover:text-white hover:bg-[var(--color-border)]/50 transition-colors"
+				class="flex items-center gap-3 w-full px-2 py-2 rounded-md text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-border)]/50 transition-colors"
 				title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
 			>
 				<svg viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5 flex-shrink-0">
@@ -169,12 +181,12 @@
 	<div class="flex-1 flex flex-col min-w-0">
 		<!-- Mobile header -->
 		<div class="lg:hidden flex items-center gap-3 p-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-			<button onclick={() => mobileMenuOpen = true} class="p-1.5 rounded-md text-[var(--color-text-muted)] hover:text-white" aria-label="Open menu">
+			<button onclick={() => mobileMenuOpen = true} class="p-1.5 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text)]" aria-label="Open menu">
 				<svg viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
 					<path fill-rule="evenodd" d="M3 5a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1zm0 5a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1zm0 5a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1z" clip-rule="evenodd" />
 				</svg>
 			</button>
-			<span class="font-bold text-white">MCP Platform</span>
+			<span class="font-bold">MCP Platform</span>
 		</div>
 
 		<main class="flex-1 overflow-auto p-6">
