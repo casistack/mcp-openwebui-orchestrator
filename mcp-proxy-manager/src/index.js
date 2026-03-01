@@ -209,6 +209,14 @@ class MCPProxyManagerApp {
         }
       });
     });
+
+    // Global error handler for unhandled async errors (required by Express 5)
+    this.app.use((err, req, res, next) => {
+      console.error(`[Express] Unhandled error on ${req.method} ${req.path}:`, err.message);
+      res.status(err.status || 500).json({
+        error: err.message || 'Internal server error'
+      });
+    });
   }
 
   /**
@@ -504,6 +512,7 @@ class MCPProxyManagerApp {
   }
 
   async handleStatus(req, res) {
+    try {
     const portStats = this.portManager.getStats();
     const configStats = await this.configParser.getConfigStats();
     
@@ -623,6 +632,9 @@ class MCPProxyManagerApp {
       
       res.json(response);
     }
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
   }
 
   handleGetServers(req, res) {
@@ -652,57 +664,73 @@ class MCPProxyManagerApp {
   }
 
   async handleRestartServer(req, res) {
-    const serverId = req.params.id;
-    
-    if (!this.currentServers.has(serverId)) {
-      return res.status(404).json({ error: 'Server not found' });
-    }
+    try {
+      const serverId = req.params.id;
 
-    const success = await this.proxyManager.restartProxy(serverId);
-    res.json({ success, message: success ? 'Server restarted' : 'Failed to restart server' });
+      if (!this.currentServers.has(serverId)) {
+        return res.status(404).json({ error: 'Server not found' });
+      }
+
+      const success = await this.proxyManager.restartProxy(serverId);
+      res.json({ success, message: success ? 'Server restarted' : 'Failed to restart server' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
   }
 
   async handleStopServer(req, res) {
-    const serverId = req.params.id;
-    
-    if (!this.currentServers.has(serverId)) {
-      return res.status(404).json({ error: 'Server not found' });
-    }
+    try {
+      const serverId = req.params.id;
 
-    const success = await this.proxyManager.stopProxy(serverId);
-    if (success) {
-      this.currentServers.delete(serverId);
+      if (!this.currentServers.has(serverId)) {
+        return res.status(404).json({ error: 'Server not found' });
+      }
+
+      const success = await this.proxyManager.stopProxy(serverId);
+      if (success) {
+        this.currentServers.delete(serverId);
+      }
+
+      res.json({ success, message: success ? 'Server stopped' : 'Failed to stop server' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-    
-    res.json({ success, message: success ? 'Server stopped' : 'Failed to stop server' });
   }
 
   async handleStartServer(req, res) {
-    const serverId = req.params.id;
-    
-    const servers = this.configParser.getMCPServers();
-    const serverConfig = servers.find(s => s.id === serverId);
-    
-    if (!serverConfig) {
-      return res.status(404).json({ error: 'Server configuration not found' });
-    }
+    try {
+      const serverId = req.params.id;
 
-    const success = await this.proxyManager.startProxy(serverConfig);
-    if (success) {
-      this.currentServers.set(serverId, serverConfig);
+      const servers = this.configParser.getMCPServers();
+      const serverConfig = servers.find(s => s.id === serverId);
+
+      if (!serverConfig) {
+        return res.status(404).json({ error: 'Server configuration not found' });
+      }
+
+      const success = await this.proxyManager.startProxy(serverConfig);
+      if (success) {
+        this.currentServers.set(serverId, serverConfig);
+      }
+
+      res.json({ success, message: success ? 'Server started' : 'Failed to start server' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-    
-    res.json({ success, message: success ? 'Server started' : 'Failed to start server' });
   }
 
   async handleGetConfig(req, res) {
-    const configStats = await this.configParser.getConfigStats();
-    const servers = await this.configParser.getMCPServers();
-    
-    res.json({
-      ...configStats,
-      servers: servers
-    });
+    try {
+      const configStats = await this.configParser.getConfigStats();
+      const servers = await this.configParser.getMCPServers();
+
+      res.json({
+        ...configStats,
+        servers: servers
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
   }
 
   async handleReloadConfig(req, res) {
