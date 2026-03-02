@@ -12,4 +12,7 @@ export default defineConfig({
 			},
 		},
 	},
+	ssr: {
+		noExternal: ['clsx', 'tailwind-merge', 'tailwind-variants', '@lucide/svelte', 'mode-watcher', 'bits-ui', 'svelte-sonner'],
+	},
 });
