@@ -8,6 +8,7 @@ import type { ApiKeyService } from '../services/api-key-service.js';
 import type { ConnectionManager } from '../services/connection-manager.js';
 import type { HealthService } from '../services/health-service.js';
 import type { AppDatabase } from '@mcp-platform/db';
+import type { Auth } from '../services/auth.js';
 
 export interface TRPCContext {
   user?: { id: string };
@@ -24,9 +25,19 @@ export interface TRPCContext {
   };
 }
 
-export function createTRPCContext(services: TRPCContext['services'], db?: AppDatabase) {
-  return ({ req }: trpcExpress.CreateExpressContextOptions): TRPCContext => {
-    const user = (req as typeof req & { user?: { id: string } }).user;
+export function createTRPCContext(auth: Auth, services: TRPCContext['services'], db?: AppDatabase) {
+  return async ({ req }: trpcExpress.CreateExpressContextOptions): Promise<TRPCContext> => {
+    let user: { id: string } | undefined;
+    try {
+      const session = await auth.api.getSession({
+        headers: req.headers as Record<string, string>,
+      });
+      if (session?.user) {
+        user = { id: session.user.id };
+      }
+    } catch {
+      // No valid session — user stays undefined
+    }
     return { user, db, services };
   };
 }

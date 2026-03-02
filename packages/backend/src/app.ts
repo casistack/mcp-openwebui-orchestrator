@@ -134,7 +134,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
     '/api/trpc',
     trpcExpress.createExpressMiddleware({
       router: appRouter,
-      createContext: createTRPCContext({
+      createContext: createTRPCContext(auth, {
         serverService,
         namespaceService,
         endpointService,

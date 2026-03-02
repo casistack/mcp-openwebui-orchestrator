@@ -15,6 +15,7 @@ export function createAuth(db: AppDatabase) {
         verification: verification,
       },
     }),
+    baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3001',
     basePath: '/api/auth',
     emailAndPassword: {
       enabled: true,
