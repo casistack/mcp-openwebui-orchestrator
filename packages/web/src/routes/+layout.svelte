@@ -52,6 +52,8 @@
 
 	let { children } = $props();
 
+	let isLoginPage = $derived(page.url.pathname === '/login');
+
 	function isActive(href: string): boolean {
 		const path = page.url.pathname;
 		if (href === '/') return path === '/';
@@ -62,82 +64,86 @@
 <ModeWatcher defaultMode="dark" />
 <Toaster />
 
-<Sidebar.SidebarProvider>
-	<Sidebar.Sidebar collapsible="icon" variant="sidebar">
-		<Sidebar.SidebarHeader>
-			<Sidebar.SidebarMenu>
-				<Sidebar.SidebarMenuItem>
-					<Sidebar.SidebarMenuButton size="lg" class="pointer-events-none">
-						<div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-							<Command class="size-4" />
-						</div>
-						<div class="grid flex-1 text-left text-sm leading-tight">
-							<span class="truncate font-semibold">MCP Platform</span>
-							<span class="truncate text-xs text-muted-foreground">Enterprise</span>
-						</div>
-					</Sidebar.SidebarMenuButton>
-				</Sidebar.SidebarMenuItem>
-			</Sidebar.SidebarMenu>
-		</Sidebar.SidebarHeader>
+{#if isLoginPage}
+	{@render children()}
+{:else}
+	<Sidebar.SidebarProvider>
+		<Sidebar.Sidebar collapsible="icon" variant="sidebar">
+			<Sidebar.SidebarHeader>
+				<Sidebar.SidebarMenu>
+					<Sidebar.SidebarMenuItem>
+						<Sidebar.SidebarMenuButton size="lg" class="pointer-events-none">
+							<div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+								<Command class="size-4" />
+							</div>
+							<div class="grid flex-1 text-left text-sm leading-tight">
+								<span class="truncate font-semibold">MCP Platform</span>
+								<span class="truncate text-xs text-muted-foreground">Enterprise</span>
+							</div>
+						</Sidebar.SidebarMenuButton>
+					</Sidebar.SidebarMenuItem>
+				</Sidebar.SidebarMenu>
+			</Sidebar.SidebarHeader>
 
-		<Sidebar.SidebarContent>
-			{#each navSections as section}
-				<Sidebar.SidebarGroup>
-					<Sidebar.SidebarGroupLabel>{section.label}</Sidebar.SidebarGroupLabel>
-					<Sidebar.SidebarGroupContent>
-						<Sidebar.SidebarMenu>
-							{#each section.items as item}
-								{@const active = isActive(item.href)}
-								<Sidebar.SidebarMenuItem>
-									<Sidebar.SidebarMenuButton
-										isActive={active}
-										tooltipContent={item.label}
-									>
-										{#snippet child({ props })}
-											<a href={item.href} {...props}>
-												<item.icon class="size-4" />
-												<span>{item.label}</span>
-											</a>
-										{/snippet}
-									</Sidebar.SidebarMenuButton>
-								</Sidebar.SidebarMenuItem>
-							{/each}
-						</Sidebar.SidebarMenu>
-					</Sidebar.SidebarGroupContent>
-				</Sidebar.SidebarGroup>
-			{/each}
-		</Sidebar.SidebarContent>
+			<Sidebar.SidebarContent>
+				{#each navSections as section}
+					<Sidebar.SidebarGroup>
+						<Sidebar.SidebarGroupLabel>{section.label}</Sidebar.SidebarGroupLabel>
+						<Sidebar.SidebarGroupContent>
+							<Sidebar.SidebarMenu>
+								{#each section.items as item}
+									{@const active = isActive(item.href)}
+									<Sidebar.SidebarMenuItem>
+										<Sidebar.SidebarMenuButton
+											isActive={active}
+											tooltipContent={item.label}
+										>
+											{#snippet child({ props })}
+												<a href={item.href} {...props}>
+													<item.icon class="size-4" />
+													<span>{item.label}</span>
+												</a>
+											{/snippet}
+										</Sidebar.SidebarMenuButton>
+									</Sidebar.SidebarMenuItem>
+								{/each}
+							</Sidebar.SidebarMenu>
+						</Sidebar.SidebarGroupContent>
+					</Sidebar.SidebarGroup>
+				{/each}
+			</Sidebar.SidebarContent>
 
-		<Sidebar.SidebarFooter>
-			<Sidebar.SidebarMenu>
-				<Sidebar.SidebarMenuItem>
-					<Sidebar.SidebarMenuButton onclick={toggleMode} tooltipContent="Toggle theme">
-						{#if $mode === 'light'}
-							<Moon class="size-4" />
-							<span>Dark mode</span>
-						{:else}
-							<Sun class="size-4" />
-							<span>Light mode</span>
-						{/if}
-					</Sidebar.SidebarMenuButton>
-				</Sidebar.SidebarMenuItem>
-			</Sidebar.SidebarMenu>
-			<div class="px-2 pb-1 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">v0.1.0</div>
-		</Sidebar.SidebarFooter>
+			<Sidebar.SidebarFooter>
+				<Sidebar.SidebarMenu>
+					<Sidebar.SidebarMenuItem>
+						<Sidebar.SidebarMenuButton onclick={toggleMode} tooltipContent="Toggle theme">
+							{#if $mode === 'light'}
+								<Moon class="size-4" />
+								<span>Dark mode</span>
+							{:else}
+								<Sun class="size-4" />
+								<span>Light mode</span>
+							{/if}
+						</Sidebar.SidebarMenuButton>
+					</Sidebar.SidebarMenuItem>
+				</Sidebar.SidebarMenu>
+				<div class="px-2 pb-1 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">v0.1.0</div>
+			</Sidebar.SidebarFooter>
 
-		<Sidebar.SidebarRail />
-	</Sidebar.Sidebar>
+			<Sidebar.SidebarRail />
+		</Sidebar.Sidebar>
 
-	<Sidebar.SidebarInset>
-		<header class="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-			<Sidebar.SidebarTrigger class="-ml-1" />
-			<Separator orientation="vertical" class="mr-2 !h-4" />
-			<span class="text-sm font-medium text-muted-foreground truncate">
-				{page.url.pathname === '/' ? 'Dashboard' : page.url.pathname.slice(1).split('/')[0].replace(/-/g, ' ').replace(/^\w/, (c: string) => c.toUpperCase())}
-			</span>
-		</header>
-		<main class="flex-1 overflow-auto p-6">
-			{@render children()}
-		</main>
-	</Sidebar.SidebarInset>
-</Sidebar.SidebarProvider>
+		<Sidebar.SidebarInset>
+			<header class="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+				<Sidebar.SidebarTrigger class="-ml-1" />
+				<Separator orientation="vertical" class="mr-2 !h-4" />
+				<span class="text-sm font-medium text-muted-foreground truncate">
+					{page.url.pathname === '/' ? 'Dashboard' : page.url.pathname.slice(1).split('/')[0].replace(/-/g, ' ').replace(/^\w/, (c: string) => c.toUpperCase())}
+				</span>
+			</header>
+			<main class="flex-1 overflow-auto p-6">
+				{@render children()}
+			</main>
+		</Sidebar.SidebarInset>
+	</Sidebar.SidebarProvider>
+{/if}

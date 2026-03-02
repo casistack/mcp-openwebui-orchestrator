@@ -30,7 +30,12 @@
 			stats = s;
 			connections = c as Connection[];
 			toolCallStats = t;
-		} catch {
+		} catch (e: unknown) {
+			const msg = e instanceof Error ? e.message : '';
+			if (msg.includes('UNAUTHORIZED') || msg.includes('401') || msg.includes('Not authenticated')) {
+				window.location.href = '/login';
+				return;
+			}
 			error = 'Backend not reachable';
 		}
 
