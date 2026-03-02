@@ -5,6 +5,10 @@ packages/*/node_modules/
 # TypeScript build output
 packages/*/dist/
 
+# SvelteKit
+packages/web/.svelte-kit/
+packages/web/build/
+
 # Turborepo
 .turbo/
 
@@ -35,3 +39,4 @@ logs/
 .python-version
 config/claude_desktop_config.json
 
+core.*

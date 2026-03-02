@@ -54,8 +54,9 @@ COPY --from=builder /app/packages/cli/dist packages/cli/dist/
 # Copy SvelteKit node adapter build output
 COPY --from=builder /app/packages/web/build packages/web/build/
 
-# Install production deps only
-RUN pnpm install --frozen-lockfile --prod
+# Install production deps only (skip prepare/husky lifecycle script)
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts && \
+    pnpm rebuild better-sqlite3 esbuild
 
 # Create non-root user
 RUN groupadd -r mcpgroup && \
