@@ -17,6 +17,7 @@ services:
       - CLAUDE_CONFIG_PATH=${CLAUDE_CONFIG_PATH:-/config/claude_desktop_config.json}
       - SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY:-}
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-change-me-in-production}
+      - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3001}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
       # Optional SSO
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}

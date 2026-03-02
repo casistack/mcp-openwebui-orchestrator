@@ -1,5 +1,7 @@
 import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import Database from 'better-sqlite3';
+import fs from 'fs';
 import * as schema from '../schema';
 
 export type DatabaseType = 'sqlite' | 'postgres' | 'mysql';
@@ -16,6 +18,16 @@ function createSqliteDatabase(url: string) {
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
   return drizzleSqlite(sqlite, { schema });
+}
+
+export function runMigrations(db: AppDatabase, migrationsFolder: string): void {
+  if (!fs.existsSync(migrationsFolder)) {
+    console.log(`Migrations folder not found: ${migrationsFolder}, skipping.`);
+    return;
+  }
+  console.log('Running database migrations...');
+  migrate(db, { migrationsFolder });
+  console.log('Database migrations complete.');
 }
 
 export function createDatabase(config?: DatabaseConfig): AppDatabase {

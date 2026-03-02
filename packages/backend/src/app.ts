@@ -1,8 +1,9 @@
 import path from 'path';
+import { fileURLToPath } from 'url';
 import fs from 'fs';
 import express from 'express';
 import { toNodeHandler } from 'better-auth/node';
-import { createDatabase, type AppDatabase } from '@mcp-platform/db';
+import { createDatabase, runMigrations, type AppDatabase } from '@mcp-platform/db';
 import { createAuth } from './services/auth.js';
 import { ServerService } from './services/server-service.js';
 import { NamespaceService } from './services/namespace-service.js';
@@ -47,6 +48,11 @@ export async function createApp(config: AppConfig = {}): Promise<{
     type: 'sqlite',
     url: config.databaseUrl ?? process.env.DATABASE_URL ?? 'mcp-platform.db',
   });
+
+  // Run database migrations automatically on startup
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const migrationsPath = path.resolve(__dirname, '../../db/src/migrations');
+  runMigrations(db, migrationsPath);
 
   const auth = createAuth(db);
   const serverService = new ServerService(db);
@@ -148,23 +154,12 @@ export async function createApp(config: AppConfig = {}): Promise<{
     res.json({ ok: true });
   });
 
-  // Serve SvelteKit frontend in production
-  const webBuildPath = path.resolve(import.meta.dirname, '../../web/build');
-  if (fs.existsSync(webBuildPath)) {
-    const clientPath = path.join(webBuildPath, 'client');
-    if (fs.existsSync(clientPath)) {
-      app.use(express.static(clientPath));
-    }
-    // SPA fallback: serve index.html for non-API routes
-    app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api/')) return next();
-      const indexPath = path.join(clientPath, 'index.html');
-      if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-      } else {
-        next();
-      }
-    });
+  // Serve SvelteKit frontend in production via adapter-node handler
+  const webBuildPath = path.resolve(__dirname, '../../web/build');
+  const handlerPath = path.join(webBuildPath, 'handler.js');
+  if (fs.existsSync(handlerPath)) {
+    const { handler } = await import(handlerPath);
+    app.use(handler);
   }
 
   // Auto-import on first startup
