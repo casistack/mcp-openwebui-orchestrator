@@ -1,11 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import * as Card from '$lib/components/ui/card';
+	import * as Table from '$lib/components/ui/table';
+	import { Button } from '$lib/components/ui/button';
+	import { Badge } from '$lib/components/ui/badge';
+	import { Input } from '$lib/components/ui/input';
+	import { Alert, AlertDescription } from '$lib/components/ui/alert';
+	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { ClipboardList, AlertCircle, ChevronLeft, ChevronRight } from '@lucide/svelte';
 
 	interface AuditEntry {
 		id: string; userId: string | null; action: string; resource: string;
 		resourceId: string | null; status: string; ipAddress: string | null;
-		durationMs: number | null; createdAt: string;
-		details?: Record<string, unknown>;
+		durationMs: number | null; createdAt: string; details?: Record<string, unknown>;
 	}
 
 	let logs = $state<AuditEntry[]>([]);
@@ -25,86 +32,62 @@
 			if (searchQuery.trim()) params.set('search', searchQuery.trim());
 			if (actionFilter !== 'all') params.set('action', actionFilter);
 			if (statusFilter !== 'all') params.set('status', statusFilter);
-
 			const res = await fetch(`/api/v1/admin/audit-logs?${params}`);
-			if (res.ok) {
-				const data = await res.json();
-				logs = data.auditLogs;
-				total = data.total;
-			} else if (res.status === 403) {
-				error = 'Insufficient permissions. Admin access required.';
-			}
+			if (res.ok) { const data = await res.json(); logs = data.auditLogs; total = data.total; }
+			else if (res.status === 403) error = 'Insufficient permissions. Admin access required.';
 		} catch { error = 'Failed to load'; }
 		loading = false;
 	}
 
 	onMount(load);
 
-	function statusColor(status: string) {
+	function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
 		switch (status) {
-			case 'success': return 'var(--color-success)';
-			case 'denied': return 'var(--color-error)';
-			case 'failure': return 'var(--color-warning)';
-			default: return 'var(--color-text-muted)';
+			case 'success': return 'default';
+			case 'denied': return 'destructive';
+			case 'failure': return 'secondary';
+			default: return 'outline';
 		}
 	}
 
-	function actionCategory(action: string): { label: string; color: string } {
-		if (action.startsWith('tools/') || action.startsWith('tool.')) return { label: 'tools', color: 'var(--color-success)' };
-		if (action.startsWith('server.')) return { label: 'server', color: 'var(--color-primary)' };
-		if (action.startsWith('namespace.')) return { label: 'namespace', color: 'var(--color-warning)' };
-		if (action.startsWith('auth.') || action.startsWith('user.')) return { label: 'auth', color: 'var(--color-error)' };
-		return { label: 'system', color: 'var(--color-text-muted)' };
+	function actionCategory(action: string): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
+		if (action.startsWith('tools/') || action.startsWith('tool.')) return { label: 'tools', variant: 'default' };
+		if (action.startsWith('server.')) return { label: 'server', variant: 'secondary' };
+		if (action.startsWith('namespace.')) return { label: 'namespace', variant: 'outline' };
+		if (action.startsWith('auth.') || action.startsWith('user.')) return { label: 'auth', variant: 'destructive' };
+		return { label: 'system', variant: 'outline' };
 	}
 
 	function prevPage() { offset = Math.max(0, offset - limit); load(); }
 	function nextPage() { if (offset + limit < total) { offset += limit; load(); } }
-
-	function handleSearch() {
-		offset = 0;
-		load();
-	}
-
-	function totalPages(): number {
-		return Math.max(1, Math.ceil(total / limit));
-	}
-
-	function currentPage(): number {
-		return Math.floor(offset / limit) + 1;
-	}
+	function handleSearch() { offset = 0; load(); }
+	function totalPages(): number { return Math.max(1, Math.ceil(total / limit)); }
+	function currentPage(): number { return Math.floor(offset / limit) + 1; }
 </script>
 
 <div>
 	<div class="flex justify-between items-center mb-6">
 		<div>
-			<h2 class="text-2xl font-bold">Audit Log</h2>
-			<p class="text-sm text-[var(--color-text-muted)] mt-1">Track all platform activity</p>
+			<h2 class="text-2xl font-bold tracking-tight">Audit Log</h2>
+			<p class="text-sm text-muted-foreground">Track all platform activity</p>
 		</div>
-		<span class="text-sm text-[var(--color-text-muted)]">{total} total entries</span>
+		<Badge variant="outline">{total} entries</Badge>
 	</div>
 
-	{#if error}
-		<div class="rounded-lg p-3 mb-4 text-sm border" style="background: color-mix(in srgb, var(--color-error) 10%, transparent); border-color: var(--color-error); color: var(--color-error);">{error}</div>
-	{/if}
+	{#if error}<Alert variant="destructive" class="mb-4"><AlertCircle class="size-4" /><AlertDescription>{error}</AlertDescription></Alert>{/if}
 
-	<!-- Filters -->
 	<div class="flex flex-wrap gap-3 mb-4">
 		<div class="flex-1 min-w-[200px]">
-			<input
-				bind:value={searchQuery}
-				onkeydown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-				placeholder="Search actions, resources..."
-				class="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]"
-			/>
+			<Input bind:value={searchQuery} onkeydown={(e) => { if (e.key === 'Enter') handleSearch(); }} placeholder="Search actions, resources..." />
 		</div>
-		<select bind:value={actionFilter} onchange={handleSearch} class="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm outline-none">
+		<select bind:value={actionFilter} onchange={handleSearch} class="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
 			<option value="all">All actions</option>
 			<option value="tools">Tool calls</option>
 			<option value="server">Server events</option>
 			<option value="namespace">Namespace events</option>
 			<option value="auth">Auth events</option>
 		</select>
-		<select bind:value={statusFilter} onchange={handleSearch} class="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm outline-none">
+		<select bind:value={statusFilter} onchange={handleSearch} class="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
 			<option value="all">All statuses</option>
 			<option value="success">Success</option>
 			<option value="failure">Failure</option>
@@ -113,59 +96,59 @@
 	</div>
 
 	{#if loading}
-		<p class="text-[var(--color-text-muted)]">Loading...</p>
+		<Card.Root><Card.Content class="p-6"><Skeleton class="h-60 w-full" /></Card.Content></Card.Root>
 	{:else if logs.length === 0}
-		<div class="bg-[var(--color-surface)] rounded-lg p-8 text-center border border-[var(--color-border)]">
-			<p class="text-[var(--color-text-muted)]">No audit log entries{searchQuery ? ' matching your search' : ''}.</p>
-		</div>
+		<Card.Root>
+			<Card.Content class="flex flex-col items-center justify-center py-10 text-center">
+				<ClipboardList class="size-10 text-muted-foreground mb-3" />
+				<p class="text-sm text-muted-foreground">No audit log entries{searchQuery ? ' matching your search' : ''}.</p>
+			</Card.Content>
+		</Card.Root>
 	{:else}
-		<div class="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden">
-			<table class="w-full text-sm">
-				<thead>
-					<tr class="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-						<th class="text-left px-4 py-2.5 font-medium">Timestamp</th>
-						<th class="text-left px-4 py-2.5 font-medium">User</th>
-						<th class="text-left px-4 py-2.5 font-medium">Action</th>
-						<th class="text-left px-4 py-2.5 font-medium">Resource</th>
-						<th class="text-left px-4 py-2.5 font-medium">Status</th>
-						<th class="text-left px-4 py-2.5 font-medium">Duration</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each logs as entry}
-						{@const cat = actionCategory(entry.action)}
-						<tr class="border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-border)]/20 text-xs">
-							<td class="px-4 py-2.5 whitespace-nowrap text-[var(--color-text-muted)]">{new Date(entry.createdAt).toLocaleString()}</td>
-							<td class="px-4 py-2.5 text-[var(--color-text-muted)]">{entry.userId?.slice(0, 8) ?? 'system'}...</td>
-							<td class="px-4 py-2.5">
-								<span class="inline-flex items-center gap-1.5">
-									<span class="px-1.5 py-0.5 rounded text-[10px] font-medium" style="background: color-mix(in srgb, {cat.color} 15%, transparent); color: {cat.color};">{cat.label}</span>
-									<span class="font-mono">{entry.action}</span>
-								</span>
-							</td>
-							<td class="px-4 py-2.5">
-								<span class="font-mono">{entry.resource}</span>
-								{#if entry.resourceId}
-									<span class="text-[var(--color-text-muted)]">/{entry.resourceId.slice(0, 8)}</span>
-								{/if}
-							</td>
-							<td class="px-4 py-2.5">
-								<span class="font-medium" style="color: {statusColor(entry.status)};">{entry.status}</span>
-							</td>
-							<td class="px-4 py-2.5 text-[var(--color-text-muted)] font-mono">{entry.durationMs ? entry.durationMs + 'ms' : '-'}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
+		<Card.Root>
+			<Card.Content class="p-0">
+				<Table.Root>
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Timestamp</Table.Head>
+							<Table.Head>User</Table.Head>
+							<Table.Head>Action</Table.Head>
+							<Table.Head>Resource</Table.Head>
+							<Table.Head>Status</Table.Head>
+							<Table.Head>Duration</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each logs as entry}
+							{@const cat = actionCategory(entry.action)}
+							<Table.Row class="text-xs">
+								<Table.Cell class="whitespace-nowrap text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</Table.Cell>
+								<Table.Cell class="text-muted-foreground">{entry.userId?.slice(0, 8) ?? 'system'}...</Table.Cell>
+								<Table.Cell>
+									<span class="inline-flex items-center gap-1.5">
+										<Badge variant={cat.variant} class="text-[10px]">{cat.label}</Badge>
+										<span class="font-mono">{entry.action}</span>
+									</span>
+								</Table.Cell>
+								<Table.Cell>
+									<span class="font-mono">{entry.resource}</span>
+									{#if entry.resourceId}<span class="text-muted-foreground">/{entry.resourceId.slice(0, 8)}</span>{/if}
+								</Table.Cell>
+								<Table.Cell><Badge variant={statusVariant(entry.status)}>{entry.status}</Badge></Table.Cell>
+								<Table.Cell class="text-muted-foreground font-mono">{entry.durationMs ? entry.durationMs + 'ms' : '-'}</Table.Cell>
+							</Table.Row>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			</Card.Content>
+		</Card.Root>
 
-		<!-- Pagination -->
-		<div class="flex justify-between items-center mt-4 text-sm">
-			<span class="text-xs text-[var(--color-text-muted)]">Showing {offset + 1}-{Math.min(offset + limit, total)} of {total} records</span>
+		<div class="flex justify-between items-center mt-4">
+			<span class="text-xs text-muted-foreground">Showing {offset + 1}-{Math.min(offset + limit, total)} of {total}</span>
 			<div class="flex items-center gap-2">
-				<button onclick={prevPage} disabled={offset === 0} class="px-3 py-1.5 rounded border border-[var(--color-border)] text-xs disabled:opacity-30 hover:bg-[var(--color-border)]/30">Prev</button>
-				<span class="text-xs text-[var(--color-text-muted)]">Page {currentPage()} of {totalPages()}</span>
-				<button onclick={nextPage} disabled={offset + limit >= total} class="px-3 py-1.5 rounded border border-[var(--color-border)] text-xs disabled:opacity-30 hover:bg-[var(--color-border)]/30">Next</button>
+				<Button variant="outline" size="sm" onclick={prevPage} disabled={offset === 0}><ChevronLeft class="size-4" /></Button>
+				<span class="text-xs text-muted-foreground">Page {currentPage()} of {totalPages()}</span>
+				<Button variant="outline" size="sm" onclick={nextPage} disabled={offset + limit >= total}><ChevronRight class="size-4" /></Button>
 			</div>
 		</div>
 	{/if}

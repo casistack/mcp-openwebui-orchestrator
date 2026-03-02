@@ -1,33 +1,33 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import * as Card from '$lib/components/ui/card';
+	import { Button } from '$lib/components/ui/button';
+	import { AlertTriangle } from '@lucide/svelte';
 </script>
 
 <div class="min-h-[60vh] flex items-center justify-center">
-	<div class="text-center">
-		<p class="text-6xl font-bold text-[var(--color-text-muted)]">{page.status}</p>
-		<h2 class="text-xl font-bold mt-4">
-			{#if page.status === 404}
-				Page not found
-			{:else}
-				Something went wrong
-			{/if}
-		</h2>
-		<p class="text-sm text-[var(--color-text-muted)] mt-2 max-w-md">
-			{#if page.error?.message}
-				{page.error.message}
-			{:else if page.status === 404}
-				The page you're looking for doesn't exist or has been moved.
-			{:else}
-				An unexpected error occurred. Try refreshing the page.
-			{/if}
-		</p>
-		<div class="mt-6 flex gap-3 justify-center">
-			<a href="/" class="bg-[var(--color-primary)] text-white px-4 py-2 rounded-lg text-sm hover:opacity-90">
-				Back to Dashboard
-			</a>
-			<button onclick={() => window.location.reload()} class="border border-[var(--color-border)] px-4 py-2 rounded-lg text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors">
-				Refresh
-			</button>
-		</div>
-	</div>
+	<Card.Root class="w-full max-w-md text-center">
+		<Card.Header>
+			<div class="flex justify-center mb-2">
+				<AlertTriangle class="size-12 text-muted-foreground" />
+			</div>
+			<p class="text-5xl font-bold text-muted-foreground">{page.status}</p>
+			<Card.Title class="text-xl mt-2">
+				{#if page.status === 404}Page not found{:else}Something went wrong{/if}
+			</Card.Title>
+			<Card.Description>
+				{#if page.error?.message}
+					{page.error.message}
+				{:else if page.status === 404}
+					The page you're looking for doesn't exist or has been moved.
+				{:else}
+					An unexpected error occurred. Try refreshing the page.
+				{/if}
+			</Card.Description>
+		</Card.Header>
+		<Card.Footer class="justify-center gap-3">
+			<Button href="/">Back to Dashboard</Button>
+			<Button variant="outline" onclick={() => window.location.reload()}>Refresh</Button>
+		</Card.Footer>
+	</Card.Root>
 </div>

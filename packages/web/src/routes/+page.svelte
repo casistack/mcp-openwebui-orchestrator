@@ -2,37 +2,22 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { trpc } from '$lib/trpc';
 	import { wsClient, type WSEvent } from '$lib/ws';
+	import * as Card from '$lib/components/ui/card';
+	import * as Table from '$lib/components/ui/table';
+	import { Badge } from '$lib/components/ui/badge';
+	import { Alert, AlertDescription } from '$lib/components/ui/alert';
+	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { Activity, Server, Layers, Globe, Zap, AlertCircle } from '@lucide/svelte';
 
-	interface Stats {
-		servers: number;
-		namespaces: number;
-		endpoints: number;
-		connectedServers?: number;
-	}
-
-	interface Connection {
-		serverId: string;
-		status: string;
-		toolCount: number;
-		lastPingMs: number | null;
-		lastError: string | null;
-		connectTime: string | null;
-		reconnectAttempts: number;
-	}
-
-	interface ToolCallStats {
-		totalCalls: number;
-		successCalls: number;
-		failedCalls: number;
-		avgDurationMs: number;
-	}
+	interface Stats { servers: number; namespaces: number; endpoints: number; connectedServers?: number; }
+	interface Connection { serverId: string; status: string; toolCount: number; lastPingMs: number | null; lastError: string | null; connectTime: string | null; reconnectAttempts: number; }
+	interface ToolCallStats { totalCalls: number; successCalls: number; failedCalls: number; avgDurationMs: number; }
 
 	let stats = $state<Stats | null>(null);
 	let connections = $state<Connection[]>([]);
 	let toolCallStats = $state<ToolCallStats>({ totalCalls: 0, successCalls: 0, failedCalls: 0, avgDurationMs: 0 });
 	let error = $state<string | null>(null);
 	let wsConnected = $state(false);
-
 	let cleanups: (() => void)[] = [];
 
 	onMount(async () => {
@@ -49,55 +34,31 @@
 			error = 'Backend not reachable';
 		}
 
-		// Connect WebSocket for live updates
 		wsClient.connect();
-
-		cleanups.push(wsClient.on('connected', () => {
-			wsConnected = true;
-		}));
-
-		cleanups.push(wsClient.on('server:connected', (evt: WSEvent) => {
-			refreshConnections();
-		}));
-
-		cleanups.push(wsClient.on('server:disconnected', () => {
-			refreshConnections();
-		}));
-
+		cleanups.push(wsClient.on('connected', () => { wsConnected = true; }));
+		cleanups.push(wsClient.on('server:connected', () => { refreshConnections(); }));
+		cleanups.push(wsClient.on('server:disconnected', () => { refreshConnections(); }));
 		cleanups.push(wsClient.on('server:ping', (evt: WSEvent) => {
 			const { serverId, latencyMs } = evt.data;
 			connections = connections.map((c) =>
 				c.serverId === serverId ? { ...c, lastPingMs: latencyMs as number, lastError: null } : c
 			);
 		}));
-
 		cleanups.push(wsClient.on('tool:called', () => {
-			trpc.audit.toolCallStats.query().then((t) => {
-				toolCallStats = t;
-			}).catch(() => {});
+			trpc.audit.toolCallStats.query().then((t) => { toolCallStats = t; }).catch(() => {});
 		}));
 	});
 
-	onDestroy(() => {
-		cleanups.forEach((fn) => fn());
-		wsClient.disconnect();
-	});
+	onDestroy(() => { cleanups.forEach((fn) => fn()); wsClient.disconnect(); });
 
 	async function refreshConnections() {
-		try {
-			connections = (await trpc.connections.list.query()) as Connection[];
-		} catch {}
+		try { connections = (await trpc.connections.list.query()) as Connection[]; } catch {}
 	}
 
-	function statusColor(status: string): string {
-		if (status === 'connected') return 'var(--color-success)';
-		if (status === 'connecting' || status === 'reconnecting') return 'var(--color-warning)';
-		return 'var(--color-error)';
-	}
-
-	function formatMs(ms: number | null): string {
-		if (ms === null) return '-';
-		return `${ms}ms`;
+	function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+		if (status === 'connected') return 'default';
+		if (status === 'connecting' || status === 'reconnecting') return 'secondary';
+		return 'destructive';
 	}
 
 	function errorRate(): string {
@@ -108,84 +69,118 @@
 
 <div>
 	<div class="flex items-center justify-between mb-6">
-		<h2 class="text-2xl font-bold">Dashboard</h2>
+		<div>
+			<h2 class="text-2xl font-bold tracking-tight">Dashboard</h2>
+			<p class="text-sm text-muted-foreground">Platform overview and real-time status</p>
+		</div>
 		{#if wsConnected}
-			<span class="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
-				<span class="w-2 h-2 rounded-full bg-[var(--color-success)] animate-pulse"></span>
+			<Badge variant="outline" class="gap-1.5">
+				<span class="size-2 rounded-full bg-success animate-pulse"></span>
 				Live
-			</span>
+			</Badge>
 		{/if}
 	</div>
 
 	{#if error}
-		<div class="rounded-lg p-4 border" style="background: color-mix(in srgb, var(--color-error) 10%, transparent); border-color: var(--color-error); color: var(--color-error);">
-			{error}
-		</div>
+		<Alert variant="destructive" class="mb-6">
+			<AlertCircle class="size-4" />
+			<AlertDescription>{error}</AlertDescription>
+		</Alert>
 	{:else if stats}
-		<!-- Top stats row -->
 		<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-			<div class="bg-[var(--color-surface)] rounded-lg p-5 border border-[var(--color-border)]">
-				<p class="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">Servers</p>
-				<p class="text-3xl font-bold mt-1">{stats.servers}</p>
-				{#if stats.connectedServers !== undefined}
-					<p class="text-xs text-[var(--color-text-muted)] mt-1">{stats.connectedServers} connected</p>
-				{/if}
-			</div>
-			<div class="bg-[var(--color-surface)] rounded-lg p-5 border border-[var(--color-border)]">
-				<p class="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">Namespaces</p>
-				<p class="text-3xl font-bold mt-1">{stats.namespaces}</p>
-			</div>
-			<div class="bg-[var(--color-surface)] rounded-lg p-5 border border-[var(--color-border)]">
-				<p class="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">Endpoints</p>
-				<p class="text-3xl font-bold mt-1">{stats.endpoints}</p>
-			</div>
-			<div class="bg-[var(--color-surface)] rounded-lg p-5 border border-[var(--color-border)]">
-				<p class="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">Tool Calls (24h)</p>
-				<p class="text-3xl font-bold mt-1">{toolCallStats.totalCalls}</p>
-				<p class="text-xs text-[var(--color-text-muted)] mt-1">
-					Avg {toolCallStats.avgDurationMs}ms | Err {errorRate()}
-				</p>
-			</div>
+			<Card.Root>
+				<Card.Header class="flex flex-row items-center justify-between space-y-0 pb-2">
+					<Card.Title class="text-sm font-medium">Servers</Card.Title>
+					<Server class="size-4 text-muted-foreground" />
+				</Card.Header>
+				<Card.Content>
+					<div class="text-2xl font-bold">{stats.servers}</div>
+					{#if stats.connectedServers !== undefined}
+						<p class="text-xs text-muted-foreground">{stats.connectedServers} connected</p>
+					{/if}
+				</Card.Content>
+			</Card.Root>
+			<Card.Root>
+				<Card.Header class="flex flex-row items-center justify-between space-y-0 pb-2">
+					<Card.Title class="text-sm font-medium">Namespaces</Card.Title>
+					<Layers class="size-4 text-muted-foreground" />
+				</Card.Header>
+				<Card.Content>
+					<div class="text-2xl font-bold">{stats.namespaces}</div>
+				</Card.Content>
+			</Card.Root>
+			<Card.Root>
+				<Card.Header class="flex flex-row items-center justify-between space-y-0 pb-2">
+					<Card.Title class="text-sm font-medium">Endpoints</Card.Title>
+					<Globe class="size-4 text-muted-foreground" />
+				</Card.Header>
+				<Card.Content>
+					<div class="text-2xl font-bold">{stats.endpoints}</div>
+				</Card.Content>
+			</Card.Root>
+			<Card.Root>
+				<Card.Header class="flex flex-row items-center justify-between space-y-0 pb-2">
+					<Card.Title class="text-sm font-medium">Tool Calls (24h)</Card.Title>
+					<Zap class="size-4 text-muted-foreground" />
+				</Card.Header>
+				<Card.Content>
+					<div class="text-2xl font-bold">{toolCallStats.totalCalls}</div>
+					<p class="text-xs text-muted-foreground">Avg {toolCallStats.avgDurationMs}ms | Err {errorRate()}</p>
+				</Card.Content>
+			</Card.Root>
 		</div>
 
-		<!-- Connection status -->
 		{#if connections.length > 0}
-			<h3 class="text-lg font-semibold mb-3">Server Connections</h3>
-			<div class="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden mb-6">
-				<table class="w-full text-sm">
-					<thead>
-						<tr class="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-							<th class="text-left px-4 py-2.5 font-medium">Server</th>
-							<th class="text-left px-4 py-2.5 font-medium">Status</th>
-							<th class="text-left px-4 py-2.5 font-medium">Tools</th>
-							<th class="text-left px-4 py-2.5 font-medium">Latency</th>
-							<th class="text-left px-4 py-2.5 font-medium">Error</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each connections as conn}
-							<tr class="border-b border-[var(--color-border)] last:border-0">
-								<td class="px-4 py-2.5 font-mono text-xs">{conn.serverId}</td>
-								<td class="px-4 py-2.5">
-									<span class="inline-flex items-center gap-1.5">
-										<span class="w-2 h-2 rounded-full" style="background: {statusColor(conn.status)};"></span>
-										{conn.status}
-									</span>
-								</td>
-								<td class="px-4 py-2.5">{conn.toolCount}</td>
-								<td class="px-4 py-2.5 font-mono text-xs">{formatMs(conn.lastPingMs)}</td>
-								<td class="px-4 py-2.5 text-xs text-[var(--color-error)] max-w-[200px] truncate">{conn.lastError ?? '-'}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+			<Card.Root>
+				<Card.Header>
+					<Card.Title class="flex items-center gap-2">
+						<Activity class="size-4" />
+						Server Connections
+					</Card.Title>
+				</Card.Header>
+				<Card.Content>
+					<Table.Root>
+						<Table.Header>
+							<Table.Row>
+								<Table.Head>Server</Table.Head>
+								<Table.Head>Status</Table.Head>
+								<Table.Head>Tools</Table.Head>
+								<Table.Head>Latency</Table.Head>
+								<Table.Head>Error</Table.Head>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{#each connections as conn}
+								<Table.Row>
+									<Table.Cell class="font-mono text-xs">{conn.serverId}</Table.Cell>
+									<Table.Cell>
+										<Badge variant={statusVariant(conn.status)}>{conn.status}</Badge>
+									</Table.Cell>
+									<Table.Cell>{conn.toolCount}</Table.Cell>
+									<Table.Cell class="font-mono text-xs">{conn.lastPingMs !== null ? `${conn.lastPingMs}ms` : '-'}</Table.Cell>
+									<Table.Cell class="text-xs text-destructive max-w-[200px] truncate">{conn.lastError ?? '-'}</Table.Cell>
+								</Table.Row>
+							{/each}
+						</Table.Body>
+					</Table.Root>
+				</Card.Content>
+			</Card.Root>
 		{:else}
-			<div class="bg-[var(--color-surface)] rounded-lg p-6 border border-[var(--color-border)] text-center text-[var(--color-text-muted)]">
-				No server connections. Add servers and connect them from the Servers page.
-			</div>
+			<Card.Root>
+				<Card.Content class="flex flex-col items-center justify-center py-10 text-center">
+					<Server class="size-10 text-muted-foreground mb-3" />
+					<p class="text-sm text-muted-foreground">No server connections. Add servers and connect them from the Servers page.</p>
+				</Card.Content>
+			</Card.Root>
 		{/if}
 	{:else}
-		<p class="text-[var(--color-text-muted)]">Loading...</p>
+		<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+			{#each [1, 2, 3, 4] as _}
+				<Card.Root>
+					<Card.Header class="pb-2"><Skeleton class="h-4 w-20" /></Card.Header>
+					<Card.Content><Skeleton class="h-8 w-16" /></Card.Content>
+				</Card.Root>
+			{/each}
+		</div>
 	{/if}
 </div>
