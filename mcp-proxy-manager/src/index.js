@@ -155,12 +155,9 @@ class MCPProxyManagerApp {
       next();
     });
 
-    // Serve static files for dashboard
-    this.app.use('/static', express.static(path.join(__dirname, 'static')));
-    
-    // Dashboard route
-    this.app.get('/dashboard', (req, res) => {
-      res.sendFile(path.join(__dirname, 'static', 'dashboard.html'));
+    // Legacy dashboard removed — use platform UI at /login
+    this.app.get('/dashboard', (_req, res) => {
+      res.status(301).json({ message: 'Dashboard moved to platform UI', url: '/login' });
     });
 
     // Routes
