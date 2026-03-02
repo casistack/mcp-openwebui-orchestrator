@@ -23,6 +23,7 @@ CREATE TABLE `sessions` (
 	`ip_address` text,
 	`user_agent` text,
 	`created_at` integer,
+	`updated_at` integer,
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -33,6 +34,11 @@ CREATE TABLE `users` (
 	`name` text,
 	`email_verified` integer DEFAULT false,
 	`image` text,
+	`role` text DEFAULT 'user',
+	`banned` integer DEFAULT false,
+	`ban_reason` text,
+	`ban_expires` integer,
+	`impersonated_by` text,
 	`role_id` text,
 	`created_at` integer,
 	`updated_at` integer,
@@ -213,4 +219,12 @@ CREATE TABLE `tool_configs` (
 	FOREIGN KEY (`server_id`) REFERENCES `mcp_servers`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `tool_config_unique` ON `tool_configs` (`namespace_id`,`server_id`,`tool_name`);
+CREATE UNIQUE INDEX `tool_config_unique` ON `tool_configs` (`namespace_id`,`server_id`,`tool_name`);--> statement-breakpoint
+CREATE TABLE `verification` (
+	`id` text PRIMARY KEY NOT NULL,
+	`identifier` text NOT NULL,
+	`value` text NOT NULL,
+	`expires_at` integer NOT NULL,
+	`created_at` integer,
+	`updated_at` integer
+);

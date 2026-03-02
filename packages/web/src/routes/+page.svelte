@@ -31,8 +31,8 @@
 			connections = c as Connection[];
 			toolCallStats = t;
 		} catch (e: unknown) {
-			const msg = e instanceof Error ? e.message : '';
-			if (msg.includes('UNAUTHORIZED') || msg.includes('401') || msg.includes('Not authenticated')) {
+			const msg = e instanceof Error ? e.message : String(e);
+			if (msg.includes('Not authenticated') || msg.includes('UNAUTHORIZED') || msg.includes('FORBIDDEN') || msg.includes('401') || msg.includes('403')) {
 				window.location.href = '/login';
 				return;
 			}

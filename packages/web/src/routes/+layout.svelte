@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/state';
-	import { ModeWatcher, toggleMode, mode } from 'mode-watcher';
+	import { ModeWatcher, toggleMode, mode as modeState } from 'mode-watcher';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import { Button } from '$lib/components/ui/button';
@@ -117,7 +117,7 @@
 				<Sidebar.SidebarMenu>
 					<Sidebar.SidebarMenuItem>
 						<Sidebar.SidebarMenuButton onclick={toggleMode} tooltipContent="Toggle theme">
-							{#if $mode === 'light'}
+							{#if modeState.current === 'light'}
 								<Moon class="size-4" />
 								<span>Dark mode</span>
 							{:else}

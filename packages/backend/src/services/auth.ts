@@ -2,11 +2,18 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { admin } from 'better-auth/plugins';
 import type { AppDatabase } from '@mcp-platform/db';
+import { users, sessions, accounts, verification } from '@mcp-platform/db';
 
 export function createAuth(db: AppDatabase) {
   return betterAuth({
     database: drizzleAdapter(db, {
       provider: 'sqlite',
+      schema: {
+        user: users,
+        session: sessions,
+        account: accounts,
+        verification: verification,
+      },
     }),
     basePath: '/api/auth',
     emailAndPassword: {
@@ -33,6 +40,8 @@ export function createAuth(db: AppDatabase) {
     plugins: [admin()],
     trustedOrigins: process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
       'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:3334',
       'http://localhost:5173',
     ],
   });
