@@ -28,6 +28,7 @@ import { ConfigParser } from './core/config-parser.js';
 import { ServerRuntimeService } from './services/server-runtime-service.js';
 import { MarketplaceService } from './services/marketplace-service.js';
 import { MiddlewarePipeline } from './services/middleware-pipeline.js';
+import { ToolPermissionService } from './services/tool-permission-service.js';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/routers.js';
 import { createTRPCContext } from './trpc/index.js';
@@ -70,6 +71,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   const healthService = new HealthService(db);
   const marketplaceService = new MarketplaceService(db);
   const middlewarePipeline = new MiddlewarePipeline(db);
+  const toolPermissionService = new ToolPermissionService(db);
   const wsBroadcaster = new WSBroadcaster();
   const connectionManager = new ConnectionManager(serverService, toolConfigService);
   connectionManager.setHealthService(healthService);
@@ -156,6 +158,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
         serverRuntimeService,
         marketplaceService,
         middlewarePipeline,
+        toolPermissionService,
       }, db),
     }),
   );

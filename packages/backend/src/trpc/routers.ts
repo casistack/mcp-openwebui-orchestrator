@@ -643,6 +643,68 @@ export const appRouter = router({
     }),
   }),
 
+  // --- Tool Permissions ---
+  toolPermissions: router({
+    list: protectedProcedure
+      .input(z.object({ namespaceId: z.string(), userId: z.string().optional() }))
+      .query(async ({ ctx, input }) => {
+        const svc = ctx.services.toolPermissionService;
+        if (!svc) return [];
+        return svc.getPermissions(input.namespaceId, input.userId);
+      }),
+
+    set: protectedProcedure
+      .input(z.object({
+        userId: z.string(),
+        namespaceId: z.string(),
+        toolName: z.string(),
+        allowed: z.boolean(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.toolPermissionService;
+        if (!svc) throw new Error('Tool permission service not available');
+        return svc.setPermission(input);
+      }),
+
+    bulkSet: protectedProcedure
+      .input(z.object({
+        userId: z.string(),
+        namespaceId: z.string(),
+        rules: z.array(z.object({ toolName: z.string(), allowed: z.boolean() })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.toolPermissionService;
+        if (!svc) throw new Error('Tool permission service not available');
+        await svc.bulkSetPermissions(input.userId, input.namespaceId, input.rules);
+        return { success: true };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ permissionId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.toolPermissionService;
+        if (!svc) throw new Error('Tool permission service not available');
+        return svc.deletePermission(input.permissionId);
+      }),
+
+    check: protectedProcedure
+      .input(z.object({ userId: z.string(), namespaceId: z.string(), toolName: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const svc = ctx.services.toolPermissionService;
+        if (!svc) return { allowed: true };
+        const allowed = await svc.checkAccess(input.userId, input.namespaceId, input.toolName);
+        return { allowed };
+      }),
+
+    blockedTools: protectedProcedure
+      .input(z.object({ userId: z.string(), namespaceId: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const svc = ctx.services.toolPermissionService;
+        if (!svc) return [];
+        return svc.getUserBlockedTools(input.userId, input.namespaceId);
+      }),
+  }),
+
   // --- Middleware Pipeline ---
   middleware: router({
     listSteps: protectedProcedure

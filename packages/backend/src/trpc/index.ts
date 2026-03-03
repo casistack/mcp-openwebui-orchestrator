@@ -10,6 +10,7 @@ import type { HealthService } from '../services/health-service.js';
 import type { ServerRuntimeService } from '../services/server-runtime-service.js';
 import type { MarketplaceService } from '../services/marketplace-service.js';
 import type { MiddlewarePipeline } from '../services/middleware-pipeline.js';
+import type { ToolPermissionService } from '../services/tool-permission-service.js';
 import type { AppDatabase } from '@mcp-platform/db';
 import type { Auth } from '../services/auth.js';
 
@@ -28,6 +29,7 @@ export interface TRPCContext {
     serverRuntimeService?: ServerRuntimeService | null;
     marketplaceService?: MarketplaceService;
     middlewarePipeline?: MiddlewarePipeline;
+    toolPermissionService?: ToolPermissionService;
   };
 }
 

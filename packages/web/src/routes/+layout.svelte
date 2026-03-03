@@ -9,7 +9,7 @@
 	import {
 		LayoutDashboard, HeartPulse, Server, Layers, Globe,
 		Search, Lightbulb, KeyRound, ClipboardList, Settings,
-		Sun, Moon, Command, Store, Plus, Filter
+		Sun, Moon, Command, Store, Plus, Filter, Shield
 	} from '@lucide/svelte';
 
 	const navSections = [
@@ -47,7 +47,8 @@
 			label: 'Security',
 			items: [
 				{ href: '/api-keys', label: 'API Keys', icon: KeyRound },
-				{ href: '/audit', label: 'Audit Log', icon: ClipboardList },
+				{ href: '/tool-permissions', label: 'Tool Permissions', icon: Shield },
+			{ href: '/audit', label: 'Audit Log', icon: ClipboardList },
 			],
 		},
 		{

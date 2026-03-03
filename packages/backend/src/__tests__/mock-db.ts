@@ -29,6 +29,7 @@ export const mockTables = {
   marketplaceReviews: { __table: 'marketplace_reviews', [Symbol.for('drizzle:Name')]: 'marketplace_reviews' },
   marketplaceInstalls: { __table: 'marketplace_installs', [Symbol.for('drizzle:Name')]: 'marketplace_installs' },
   pipelineSteps: { __table: 'pipeline_steps' },
+  userToolPermissions: { __table: 'user_tool_permissions' },
   eq: (...args: unknown[]) => args,
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
   desc: (...args: unknown[]) => args,

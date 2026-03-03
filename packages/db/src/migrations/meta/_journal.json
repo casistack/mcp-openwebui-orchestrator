@@ -29,6 +29,13 @@
       "when": 1772751600000,
       "tag": "0003_middleware",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1772838000000,
+      "tag": "0004_tool_permissions",
+      "breakpoints": true
     }
   ]
 }
