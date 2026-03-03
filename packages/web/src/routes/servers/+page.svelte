@@ -34,11 +34,55 @@
 	let error = $state<string | null>(null);
 	let form = $state({ name: '', transport: 'stdio' as 'stdio' | 'sse' | 'streamable-http', command: '', args: '', url: '', proxyType: 'mcpo', needsProxy: true });
 
+	// Bulk selection
+	let selected = $state<Set<string>>(new Set());
+	let bulkDeleting = $state(false);
+	let showBulkDeleteDialog = $state(false);
+
+	let allSelected = $derived(servers.length > 0 && selected.size === servers.length);
+	let someSelected = $derived(selected.size > 0 && selected.size < servers.length);
+
+	function toggleSelect(id: string) {
+		const next = new Set(selected);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selected = next;
+	}
+
+	function toggleSelectAll() {
+		if (allSelected) {
+			selected = new Set();
+		} else {
+			selected = new Set(servers.map(s => s.id));
+		}
+	}
+
+	async function handleBulkDelete() {
+		if (selected.size === 0) return;
+		bulkDeleting = true;
+		let failed = 0;
+		for (const id of selected) {
+			try {
+				await trpc.servers.delete.mutate({ id });
+			} catch {
+				failed++;
+			}
+		}
+		selected = new Set();
+		showBulkDeleteDialog = false;
+		bulkDeleting = false;
+		if (failed > 0) error = `Failed to delete ${failed} server(s)`;
+		await loadServers();
+	}
+
 	async function loadServers() {
 		try {
 			const [result, conns] = await Promise.all([trpc.servers.list.query(), trpc.connections.list.query().catch(() => [])]);
 			servers = (result as unknown as { servers: ServerItem[] }).servers ?? (result as unknown as ServerItem[]);
 			connections = conns as Connection[];
+			// Clear stale selections
+			const ids = new Set(servers.map(s => s.id));
+			selected = new Set([...selected].filter(id => ids.has(id)));
 			await loadRuntimeStatus();
 		} catch (e: unknown) {
 			const msg = e instanceof Error ? e.message : 'Failed to connect to backend';
@@ -156,7 +200,15 @@
 			<h2 class="text-2xl font-bold tracking-tight">Servers</h2>
 			<p class="text-sm text-muted-foreground">Manage MCP server connections and runtime processes</p>
 		</div>
-		<Button onclick={openAdd}><Plus class="size-4 mr-2" />Add Server</Button>
+		<div class="flex items-center gap-2">
+			{#if selected.size > 0}
+				<Button variant="destructive" size="sm" onclick={() => showBulkDeleteDialog = true}>
+					<Trash2 class="size-4 mr-1" />Delete {selected.size} selected
+				</Button>
+				<Button variant="outline" size="sm" onclick={() => selected = new Set()}>Clear</Button>
+			{/if}
+			<Button onclick={openAdd}><Plus class="size-4 mr-2" />Add Server</Button>
+		</div>
 	</div>
 
 	{#if error}
@@ -184,6 +236,15 @@
 				<Table.Root>
 					<Table.Header>
 						<Table.Row>
+							<Table.Head class="w-10">
+								<input
+									type="checkbox"
+									checked={allSelected}
+									indeterminate={someSelected}
+									onchange={toggleSelectAll}
+									class="size-4 rounded border-input accent-primary cursor-pointer"
+								/>
+							</Table.Head>
 							<Table.Head>Name</Table.Head>
 							<Table.Head>Transport</Table.Head>
 							<Table.Head>Connection</Table.Head>
@@ -202,7 +263,15 @@
 							{@const conn = getConnection(server.id)}
 							{@const rtBadge = runtimeBadge(server.id)}
 							{@const rt = runtimeMap[server.id]}
-							<Table.Row>
+							<Table.Row class={selected.has(server.id) ? 'bg-muted/50' : ''}>
+								<Table.Cell>
+									<input
+										type="checkbox"
+										checked={selected.has(server.id)}
+										onchange={() => toggleSelect(server.id)}
+										class="size-4 rounded border-input accent-primary cursor-pointer"
+									/>
+								</Table.Cell>
 								<Table.Cell class="font-mono text-xs font-medium">{server.displayName || server.name}</Table.Cell>
 								<Table.Cell><Badge variant="secondary">{server.transport}</Badge></Table.Cell>
 								<Table.Cell><Badge variant={status.variant}>{status.label}</Badge></Table.Cell>
@@ -239,7 +308,7 @@
 				</Table.Root>
 			</Card.Content>
 		</Card.Root>
-		<p class="mt-3 text-xs text-muted-foreground">{servers.length} server{servers.length !== 1 ? 's' : ''} configured</p>
+		<p class="mt-3 text-xs text-muted-foreground">{servers.length} server{servers.length !== 1 ? 's' : ''} configured{selected.size > 0 ? ` (${selected.size} selected)` : ''}</p>
 	{/if}
 </div>
 
@@ -297,7 +366,7 @@
 	</Dialog.Content>
 </Dialog.Root>
 
-<!-- Delete Confirmation -->
+<!-- Single Delete Confirmation -->
 <Dialog.Root open={!!deleteTarget} onOpenChange={(open) => { if (!open) deleteTarget = null; }}>
 	<Dialog.Content class="sm:max-w-sm">
 		<Dialog.Header>
@@ -307,6 +376,32 @@
 		<Dialog.Footer>
 			<Button variant="outline" onclick={() => deleteTarget = null}>Cancel</Button>
 			<Button variant="destructive" onclick={handleDelete}>Delete</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+
+<!-- Bulk Delete Confirmation -->
+<Dialog.Root bind:open={showBulkDeleteDialog}>
+	<Dialog.Content class="sm:max-w-sm">
+		<Dialog.Header>
+			<Dialog.Title>Delete {selected.size} Server{selected.size !== 1 ? 's' : ''}</Dialog.Title>
+			<Dialog.Description>
+				Are you sure you want to delete the following servers? This cannot be undone.
+			</Dialog.Description>
+		</Dialog.Header>
+		<div class="max-h-40 overflow-y-auto py-2">
+			{#each servers.filter(s => selected.has(s.id)) as server}
+				<div class="flex items-center gap-2 py-1 px-1 text-sm">
+					<Badge variant="secondary" class="text-xs">{server.transport}</Badge>
+					<span class="font-mono text-xs">{server.displayName || server.name}</span>
+				</div>
+			{/each}
+		</div>
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => showBulkDeleteDialog = false} disabled={bulkDeleting}>Cancel</Button>
+			<Button variant="destructive" onclick={handleBulkDelete} disabled={bulkDeleting}>
+				{bulkDeleting ? 'Deleting...' : `Delete ${selected.size} server${selected.size !== 1 ? 's' : ''}`}
+			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
