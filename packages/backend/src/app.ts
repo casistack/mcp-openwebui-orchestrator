@@ -25,6 +25,7 @@ import { createMCPProtocolRouter } from './routes/mcp-protocol.js';
 import { createOpenAPIRouter } from './routes/openapi.js';
 import { createAuditMiddleware } from './middleware/audit.js';
 import { ConfigParser } from './core/config-parser.js';
+import { ServerRuntimeService } from './services/server-runtime-service.js';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/routers.js';
 import { createTRPCContext } from './trpc/index.js';
@@ -43,6 +44,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   connectionManager: ConnectionManager;
   wsBroadcaster: WSBroadcaster;
   healthService: HealthService;
+  serverRuntimeService: ServerRuntimeService | null;
 }> {
   const db = createDatabase({
     type: 'sqlite',
@@ -68,6 +70,11 @@ export async function createApp(config: AppConfig = {}): Promise<{
   const connectionManager = new ConnectionManager(serverService, toolConfigService);
   connectionManager.setHealthService(healthService);
   wsBroadcaster.wireConnectionManager(connectionManager);
+
+  // Server runtime service (spawns and manages MCPO/MCP-Bridge processes)
+  const serverRuntimeService = process.env.ENABLE_SERVER_RUNTIME !== 'false'
+    ? new ServerRuntimeService(serverService, healthService, secretsService, db)
+    : null;
 
   // Seed default RBAC roles/permissions on first run
   await rbacService.seedDefaults();
@@ -142,6 +149,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
         apiKeyService,
         connectionManager,
         healthService,
+        serverRuntimeService,
       }, db),
     }),
   );
@@ -173,7 +181,12 @@ export async function createApp(config: AppConfig = {}): Promise<{
   }).catch(() => { /* non-critical */ });
   connectionManager.startHealthChecks();
 
-  return { app, db, auth, serverService, rbacService, connectionManager, wsBroadcaster, healthService };
+  // Start runtime health monitoring if enabled
+  if (serverRuntimeService) {
+    serverRuntimeService.startHealthMonitoring();
+  }
+
+  return { app, db, auth, serverService, rbacService, connectionManager, wsBroadcaster, healthService, serverRuntimeService };
 }
 
 async function autoImportServers(

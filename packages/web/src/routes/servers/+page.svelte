@@ -11,17 +11,26 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { Plus, Pencil, Trash2, Server, AlertCircle } from '@lucide/svelte';
+	import ScrollArea from '$lib/components/ui/scroll-area/scroll-area.svelte';
+	import { Plus, Pencil, Trash2, Server, AlertCircle, Play, Square, RotateCcw, FileText } from '@lucide/svelte';
 
 	interface ServerItem { id: string; name: string; displayName: string; transport: string; status: string; command?: string; url?: string; proxyType?: string; needsProxy?: boolean; }
 	interface Connection { serverId: string; status: string; toolCount: number; lastPingMs: number | null; lastError: string | null; }
+	interface RuntimeInfo { serverId: string; status: string; pid: number | null; port: number | null; proxyType: string | null; startedAt: string | null; restartCount: number; healthy: boolean; lastError: string | null; }
+	interface LogEntry { stream: string; message: string; createdAt: string | null; }
 
 	let servers = $state<ServerItem[]>([]);
 	let connections = $state<Connection[]>([]);
+	let runtimeMap = $state<Record<string, RuntimeInfo>>({});
+	let runtimeEnabled = $state(false);
 	let loading = $state(true);
 	let showAddDialog = $state(false);
 	let editingServer = $state<ServerItem | null>(null);
 	let deleteTarget = $state<ServerItem | null>(null);
+	let logsTarget = $state<ServerItem | null>(null);
+	let logs = $state<LogEntry[]>([]);
+	let logsLoading = $state(false);
+	let actionLoading = $state<Record<string, boolean>>({});
 	let error = $state<string | null>(null);
 	let form = $state({ name: '', transport: 'stdio' as 'stdio' | 'sse' | 'streamable-http', command: '', args: '', url: '', proxyType: 'mcpo', needsProxy: true });
 
@@ -30,11 +39,26 @@
 			const [result, conns] = await Promise.all([trpc.servers.list.query(), trpc.connections.list.query().catch(() => [])]);
 			servers = (result as unknown as { servers: ServerItem[] }).servers ?? (result as unknown as ServerItem[]);
 			connections = conns as Connection[];
+			await loadRuntimeStatus();
 		} catch (e: unknown) {
 			const msg = e instanceof Error ? e.message : 'Failed to connect to backend';
 			error = msg.includes('FORBIDDEN') ? 'Insufficient permissions to view servers' : msg;
 		}
 		loading = false;
+	}
+
+	async function loadRuntimeStatus() {
+		try {
+			const enabled = await trpc.runtime.enabled.query();
+			runtimeEnabled = (enabled as { enabled: boolean }).enabled;
+			if (!runtimeEnabled) return;
+			const running = await trpc.runtime.listRunning.query() as RuntimeInfo[];
+			const map: Record<string, RuntimeInfo> = {};
+			for (const r of running) map[r.serverId] = r;
+			runtimeMap = map;
+		} catch {
+			// Runtime service not available
+		}
 	}
 
 	onMount(loadServers);
@@ -67,6 +91,41 @@
 		catch (e: unknown) { error = e instanceof Error ? e.message : 'Failed to delete server'; }
 	}
 
+	async function handleRuntimeAction(serverId: string, action: 'start' | 'stop' | 'restart') {
+		actionLoading = { ...actionLoading, [serverId]: true };
+		try {
+			if (action === 'start') await trpc.runtime.start.mutate({ serverId });
+			else if (action === 'stop') await trpc.runtime.stop.mutate({ serverId });
+			else await trpc.runtime.restart.mutate({ serverId });
+			await loadRuntimeStatus();
+		} catch (e: unknown) {
+			error = e instanceof Error ? e.message : `Failed to ${action} server`;
+		}
+		actionLoading = { ...actionLoading, [serverId]: false };
+	}
+
+	async function openLogs(server: ServerItem) {
+		logsTarget = server;
+		logsLoading = true;
+		try {
+			logs = await trpc.runtime.logs.query({ serverId: server.id, limit: 100 }) as LogEntry[];
+		} catch {
+			logs = [];
+		}
+		logsLoading = false;
+	}
+
+	async function refreshLogs() {
+		if (!logsTarget) return;
+		logsLoading = true;
+		try {
+			logs = await trpc.runtime.logs.query({ serverId: logsTarget.id, limit: 100 }) as LogEntry[];
+		} catch {
+			logs = [];
+		}
+		logsLoading = false;
+	}
+
 	function getConnection(id: string) { return connections.find(c => c.serverId === id); }
 	function connectionStatus(server: ServerItem): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
 		const conn = getConnection(server.id);
@@ -75,13 +134,27 @@
 		if (conn.status === 'connecting' || conn.status === 'reconnecting') return { label: conn.status, variant: 'secondary' };
 		return { label: conn.status || 'error', variant: 'destructive' };
 	}
+
+	function runtimeBadge(serverId: string): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
+		const rt = runtimeMap[serverId];
+		if (!rt) return { label: 'stopped', variant: 'outline' };
+		if (rt.status === 'running' && rt.healthy) return { label: 'running', variant: 'default' };
+		if (rt.status === 'running' || rt.status === 'starting') return { label: rt.status, variant: 'secondary' };
+		if (rt.status === 'error' || rt.status === 'crashed') return { label: rt.status, variant: 'destructive' };
+		return { label: rt.status, variant: 'outline' };
+	}
+
+	function isRunning(serverId: string): boolean {
+		const rt = runtimeMap[serverId];
+		return !!rt && (rt.status === 'running' || rt.status === 'starting');
+	}
 </script>
 
 <div>
 	<div class="flex justify-between items-center mb-6">
 		<div>
 			<h2 class="text-2xl font-bold tracking-tight">Servers</h2>
-			<p class="text-sm text-muted-foreground">Manage MCP server connections</p>
+			<p class="text-sm text-muted-foreground">Manage MCP server connections and runtime processes</p>
 		</div>
 		<Button onclick={openAdd}><Plus class="size-4 mr-2" />Add Server</Button>
 	</div>
@@ -113,7 +186,11 @@
 						<Table.Row>
 							<Table.Head>Name</Table.Head>
 							<Table.Head>Transport</Table.Head>
-							<Table.Head>Status</Table.Head>
+							<Table.Head>Connection</Table.Head>
+							{#if runtimeEnabled}
+								<Table.Head>Runtime</Table.Head>
+								<Table.Head>Port</Table.Head>
+							{/if}
 							<Table.Head>Tools</Table.Head>
 							<Table.Head>Latency</Table.Head>
 							<Table.Head class="text-right">Actions</Table.Head>
@@ -123,13 +200,36 @@
 						{#each servers as server}
 							{@const status = connectionStatus(server)}
 							{@const conn = getConnection(server.id)}
+							{@const rtBadge = runtimeBadge(server.id)}
+							{@const rt = runtimeMap[server.id]}
 							<Table.Row>
 								<Table.Cell class="font-mono text-xs font-medium">{server.displayName || server.name}</Table.Cell>
 								<Table.Cell><Badge variant="secondary">{server.transport}</Badge></Table.Cell>
 								<Table.Cell><Badge variant={status.variant}>{status.label}</Badge></Table.Cell>
+								{#if runtimeEnabled}
+									<Table.Cell><Badge variant={rtBadge.variant}>{rtBadge.label}</Badge></Table.Cell>
+									<Table.Cell class="font-mono text-xs text-muted-foreground">{rt?.port ?? '-'}</Table.Cell>
+								{/if}
 								<Table.Cell class="text-muted-foreground">{conn?.toolCount ?? 0}</Table.Cell>
 								<Table.Cell class="font-mono text-xs text-muted-foreground">{conn?.lastPingMs ? `${conn.lastPingMs}ms` : '-'}</Table.Cell>
-								<Table.Cell class="text-right">
+								<Table.Cell class="text-right space-x-1">
+									{#if runtimeEnabled}
+										{#if isRunning(server.id)}
+											<Button variant="ghost" size="icon" title="Stop" disabled={actionLoading[server.id]} onclick={() => handleRuntimeAction(server.id, 'stop')}>
+												<Square class="size-4 text-destructive" />
+											</Button>
+											<Button variant="ghost" size="icon" title="Restart" disabled={actionLoading[server.id]} onclick={() => handleRuntimeAction(server.id, 'restart')}>
+												<RotateCcw class="size-4" />
+											</Button>
+										{:else}
+											<Button variant="ghost" size="icon" title="Start" disabled={actionLoading[server.id]} onclick={() => handleRuntimeAction(server.id, 'start')}>
+												<Play class="size-4 text-green-600" />
+											</Button>
+										{/if}
+										<Button variant="ghost" size="icon" title="Logs" onclick={() => openLogs(server)}>
+											<FileText class="size-4" />
+										</Button>
+									{/if}
 									<Button variant="ghost" size="icon" onclick={() => openEdit(server)}><Pencil class="size-4" /></Button>
 									<Button variant="ghost" size="icon" onclick={() => deleteTarget = server}><Trash2 class="size-4 text-destructive" /></Button>
 								</Table.Cell>
@@ -208,5 +308,31 @@
 			<Button variant="outline" onclick={() => deleteTarget = null}>Cancel</Button>
 			<Button variant="destructive" onclick={handleDelete}>Delete</Button>
 		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+
+<!-- Logs Dialog -->
+<Dialog.Root open={!!logsTarget} onOpenChange={(open) => { if (!open) logsTarget = null; }}>
+	<Dialog.Content class="sm:max-w-2xl max-h-[80vh]">
+		<Dialog.Header>
+			<Dialog.Title>Logs: {logsTarget?.displayName || logsTarget?.name}</Dialog.Title>
+		</Dialog.Header>
+		<div class="flex justify-end mb-2">
+			<Button variant="outline" size="sm" onclick={refreshLogs} disabled={logsLoading}>
+				<RotateCcw class="size-3 mr-1" />Refresh
+			</Button>
+		</div>
+		<ScrollArea class="h-[400px] rounded-md border p-3 bg-muted/50">
+			{#if logsLoading}
+				<Skeleton class="h-6 w-full mb-2" />
+				<Skeleton class="h-6 w-3/4 mb-2" />
+				<Skeleton class="h-6 w-5/6" />
+			{:else if logs.length === 0}
+				<p class="text-sm text-muted-foreground text-center py-8">No logs available</p>
+			{:else}
+				<pre class="text-xs font-mono whitespace-pre-wrap">{#each logs as log}<span class={log.stream === 'stderr' ? 'text-red-500' : 'text-muted-foreground'}>{log.message}
+</span>{/each}</pre>
+			{/if}
+		</ScrollArea>
 	</Dialog.Content>
 </Dialog.Root>

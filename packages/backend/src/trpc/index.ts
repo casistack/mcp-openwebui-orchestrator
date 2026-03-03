@@ -7,6 +7,7 @@ import type { ToolConfigService } from '../services/tool-config-service.js';
 import type { ApiKeyService } from '../services/api-key-service.js';
 import type { ConnectionManager } from '../services/connection-manager.js';
 import type { HealthService } from '../services/health-service.js';
+import type { ServerRuntimeService } from '../services/server-runtime-service.js';
 import type { AppDatabase } from '@mcp-platform/db';
 import type { Auth } from '../services/auth.js';
 
@@ -22,6 +23,7 @@ export interface TRPCContext {
     apiKeyService: ApiKeyService;
     connectionManager?: ConnectionManager;
     healthService?: HealthService;
+    serverRuntimeService?: ServerRuntimeService | null;
   };
 }
 

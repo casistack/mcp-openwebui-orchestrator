@@ -413,6 +413,72 @@ export const appRouter = router({
       }),
   }),
 
+  // --- Runtime ---
+  runtime: router({
+    start: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const srs = ctx.services.serverRuntimeService;
+        if (!srs) throw new Error('Server runtime service not enabled');
+        await srs.startServer(input.serverId);
+        return { ok: true };
+      }),
+
+    stop: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const srs = ctx.services.serverRuntimeService;
+        if (!srs) throw new Error('Server runtime service not enabled');
+        await srs.stopServer(input.serverId);
+        return { ok: true };
+      }),
+
+    restart: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const srs = ctx.services.serverRuntimeService;
+        if (!srs) throw new Error('Server runtime service not enabled');
+        await srs.restartServer(input.serverId);
+        return { ok: true };
+      }),
+
+    status: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .query(({ ctx, input }) => {
+        const srs = ctx.services.serverRuntimeService;
+        if (!srs) return null;
+        return srs.getProcessInfo(input.serverId);
+      }),
+
+    listRunning: protectedProcedure.query(({ ctx }) => {
+      const srs = ctx.services.serverRuntimeService;
+      if (!srs) return [];
+      return srs.listRunningProcesses();
+    }),
+
+    logs: protectedProcedure
+      .input(z.object({ serverId: z.string(), limit: z.number().optional() }))
+      .query(async ({ ctx, input }) => {
+        const srs = ctx.services.serverRuntimeService;
+        if (!srs) return [];
+        return srs.getLogs(input.serverId, input.limit ?? 100);
+      }),
+
+    ports: protectedProcedure.query(({ ctx }) => {
+      const srs = ctx.services.serverRuntimeService;
+      if (!srs) return { allocated: [], stats: { totalPorts: 0, allocatedCount: 0, availableCount: 0, utilization: 0 } };
+      const pm = srs.getPortManager();
+      return {
+        allocated: pm.getAllocatedPorts(),
+        stats: pm.getStats(),
+      };
+    }),
+
+    enabled: protectedProcedure.query(({ ctx }) => {
+      return { enabled: ctx.services.serverRuntimeService != null };
+    }),
+  }),
+
   // --- Stats ---
   stats: protectedProcedure.query(async ({ ctx }) => {
     const [servers, namespaces, endpoints] = await Promise.all([

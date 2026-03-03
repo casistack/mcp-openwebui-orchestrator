@@ -24,10 +24,27 @@ export const mcpServers = sqliteTable('mcp_servers', {
   // Status
   status: text('status').default('inactive'),
   isPublic: integer('is_public', { mode: 'boolean' }).default(false),
+  // Runtime state (managed by ServerRuntimeService)
+  runtimeStatus: text('runtime_status').default('stopped'),
+  runtimePid: integer('runtime_pid'),
+  runtimePort: integer('runtime_port'),
+  runtimeProxyTypeUsed: text('runtime_proxy_type_used'),
+  runtimeStartedAt: integer('runtime_started_at', { mode: 'timestamp' }),
+  runtimeRestartCount: integer('runtime_restart_count').default(0),
+  runtimeLastError: text('runtime_last_error'),
+  runtimeMode: text('runtime_mode').default('individual'),
   // Ownership
   createdBy: text('created_by').references(() => users.id),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const serverRuntimeLogs = sqliteTable('server_runtime_logs', {
+  id: text('id').primaryKey(),
+  serverId: text('server_id').notNull().references(() => mcpServers.id, { onDelete: 'cascade' }),
+  stream: text('stream').notNull().default('stdout'),
+  message: text('message').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
 
 export const serverEnvVars = sqliteTable('server_env_vars', {
