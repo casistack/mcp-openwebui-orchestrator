@@ -1,4 +1,3 @@
--- Marketplace listings: server catalog entries
 CREATE TABLE marketplace_listings (
   id TEXT PRIMARY KEY NOT NULL,
   publisher_id TEXT NOT NULL REFERENCES users(id),
@@ -24,14 +23,11 @@ CREATE TABLE marketplace_listings (
   status TEXT DEFAULT 'pending',
   created_at INTEGER DEFAULT (unixepoch()),
   updated_at INTEGER DEFAULT (unixepoch())
-);
-
-CREATE UNIQUE INDEX marketplace_slug_unique ON marketplace_listings(slug);
-CREATE INDEX marketplace_category_idx ON marketplace_listings(category);
-CREATE INDEX marketplace_publisher_idx ON marketplace_listings(publisher_id);
-CREATE INDEX marketplace_status_idx ON marketplace_listings(status);
-
--- Marketplace reviews: user ratings and feedback
+);--> statement-breakpoint
+CREATE UNIQUE INDEX marketplace_slug_unique ON marketplace_listings(slug);--> statement-breakpoint
+CREATE INDEX marketplace_category_idx ON marketplace_listings(category);--> statement-breakpoint
+CREATE INDEX marketplace_publisher_idx ON marketplace_listings(publisher_id);--> statement-breakpoint
+CREATE INDEX marketplace_status_idx ON marketplace_listings(status);--> statement-breakpoint
 CREATE TABLE marketplace_reviews (
   id TEXT PRIMARY KEY NOT NULL,
   listing_id TEXT NOT NULL REFERENCES marketplace_listings(id) ON DELETE CASCADE,
@@ -41,12 +37,9 @@ CREATE TABLE marketplace_reviews (
   body TEXT,
   created_at INTEGER DEFAULT (unixepoch()),
   updated_at INTEGER DEFAULT (unixepoch())
-);
-
-CREATE UNIQUE INDEX review_user_listing_unique ON marketplace_reviews(listing_id, user_id);
-CREATE INDEX review_listing_idx ON marketplace_reviews(listing_id);
-
--- Marketplace installs: track who installed what
+);--> statement-breakpoint
+CREATE UNIQUE INDEX review_user_listing_unique ON marketplace_reviews(listing_id, user_id);--> statement-breakpoint
+CREATE INDEX review_listing_idx ON marketplace_reviews(listing_id);--> statement-breakpoint
 CREATE TABLE marketplace_installs (
   id TEXT PRIMARY KEY NOT NULL,
   listing_id TEXT NOT NULL REFERENCES marketplace_listings(id) ON DELETE CASCADE,
@@ -55,7 +48,6 @@ CREATE TABLE marketplace_installs (
   version TEXT NOT NULL,
   installed_at INTEGER DEFAULT (unixepoch()),
   uninstalled_at INTEGER
-);
-
-CREATE INDEX install_listing_idx ON marketplace_installs(listing_id);
+);--> statement-breakpoint
+CREATE INDEX install_listing_idx ON marketplace_installs(listing_id);--> statement-breakpoint
 CREATE INDEX install_user_idx ON marketplace_installs(user_id);

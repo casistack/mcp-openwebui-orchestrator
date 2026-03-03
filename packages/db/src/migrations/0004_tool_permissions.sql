@@ -6,8 +6,7 @@ CREATE TABLE IF NOT EXISTS `user_tool_permissions` (
   `allowed` integer NOT NULL DEFAULT 1,
   `created_at` integer,
   `updated_at` integer
-);
-
-CREATE INDEX IF NOT EXISTS `idx_user_tool_perms_user` ON `user_tool_permissions` (`user_id`);
-CREATE INDEX IF NOT EXISTS `idx_user_tool_perms_namespace` ON `user_tool_permissions` (`namespace_id`);
+);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_user_tool_perms_user` ON `user_tool_permissions` (`user_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_user_tool_perms_namespace` ON `user_tool_permissions` (`namespace_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `idx_user_tool_perms_unique` ON `user_tool_permissions` (`user_id`, `namespace_id`, `tool_name`);

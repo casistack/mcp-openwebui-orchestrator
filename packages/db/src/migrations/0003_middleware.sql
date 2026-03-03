@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS `pipeline_steps` (
   `order` integer NOT NULL DEFAULT 0,
   `created_at` integer,
   `updated_at` integer
-);
-
-CREATE INDEX IF NOT EXISTS `idx_pipeline_steps_namespace` ON `pipeline_steps` (`namespace_id`);
+);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_pipeline_steps_namespace` ON `pipeline_steps` (`namespace_id`);--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_pipeline_steps_order` ON `pipeline_steps` (`namespace_id`, `order`);

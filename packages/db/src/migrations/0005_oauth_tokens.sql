@@ -14,9 +14,8 @@ CREATE TABLE IF NOT EXISTS `user_endpoint_tokens` (
   `metadata` text,
   `created_at` integer,
   `updated_at` integer
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS `user_endpoint_provider` ON `user_endpoint_tokens` (`user_id`, `endpoint_id`, `provider`);
-CREATE INDEX IF NOT EXISTS `idx_uet_user` ON `user_endpoint_tokens` (`user_id`);
-CREATE INDEX IF NOT EXISTS `idx_uet_endpoint` ON `user_endpoint_tokens` (`endpoint_id`);
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `user_endpoint_provider` ON `user_endpoint_tokens` (`user_id`, `endpoint_id`, `provider`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_uet_user` ON `user_endpoint_tokens` (`user_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_uet_endpoint` ON `user_endpoint_tokens` (`endpoint_id`);--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_uet_status` ON `user_endpoint_tokens` (`status`);
