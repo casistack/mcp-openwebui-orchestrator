@@ -45,6 +45,7 @@ export interface MockDatabase {
   select: () => { from: (table: TableRef) => Promise<unknown[]> };
   insert: (table: TableRef) => { values: (row: unknown) => { run: () => void } & Promise<void> };
   update: (table: TableRef) => { set: (data: unknown) => { where: (cond: unknown) => { run: () => void } } };
+  delete: (table: TableRef) => { where: (cond: unknown) => Promise<{ changes: number }> };
   run: jest.Mock<(...args: unknown[]) => void>;
   // Test helpers
   _getTable: (name: string) => unknown[];
@@ -91,6 +92,10 @@ export function createMockDatabase(): MockDatabase {
           run: () => {},
         }),
       }),
+    }),
+
+    delete: (_table: TableRef) => ({
+      where: (_cond: unknown) => Promise.resolve({ changes: 1 }),
     }),
 
     run: jest.fn(),

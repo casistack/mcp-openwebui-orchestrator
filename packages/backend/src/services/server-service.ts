@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { mcpServers, serverEnvVars } from '@mcp-platform/db';
+import { mcpServers, serverEnvVars, eq } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 export interface CreateServerInput {
@@ -115,21 +115,7 @@ export class ServerService {
     const existing = await this.getServer(id);
     if (!existing) return false;
 
-    // Use the underlying better-sqlite3 for delete to avoid type conflicts
-    const allBefore = await this.db.select().from(mcpServers);
-    const filtered = allBefore.filter(s => s.id !== id);
-    if (filtered.length === allBefore.length) return false;
-
-    // Delete via raw SQL through the underlying connection
-    try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM mcp_servers WHERE id = ?`, id);
-    } catch {
-      // If run() isn't available, the delete will need to use a properly typed query
-      console.error(`Delete failed for server ${id} - raw SQL not available`);
-      return false;
-    }
-
+    await this.db.delete(mcpServers).where(eq(mcpServers.id, id));
     return true;
   }
 

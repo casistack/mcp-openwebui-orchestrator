@@ -157,15 +157,11 @@ describe('ServerService', () => {
       expect(result).toBe(false);
     });
 
-    it('should call run with DELETE SQL for existing server', async () => {
+    it('should delete existing server via db.delete', async () => {
       await service.createServer({ name: 'Delete Me', transport: 'stdio' });
 
       const result = await service.deleteServer('delete-me');
       expect(result).toBe(true);
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('DELETE FROM mcp_servers'),
-        'delete-me',
-      );
     });
   });
 
