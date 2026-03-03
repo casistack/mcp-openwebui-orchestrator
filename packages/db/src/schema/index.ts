@@ -8,3 +8,4 @@ export * from './audit-logs';
 export * from './health-records';
 export * from './tool-configs';
 export * from './marketplace';
+export * from './middleware';

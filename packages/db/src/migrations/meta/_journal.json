@@ -22,6 +22,13 @@
       "when": 1772665200000,
       "tag": "0002_marketplace",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1772751600000,
+      "tag": "0003_middleware",
+      "breakpoints": true
     }
   ]
 }

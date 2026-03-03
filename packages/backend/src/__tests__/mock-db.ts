@@ -23,13 +23,26 @@ export const mockTables = {
   rolePermissions: { __table: 'role_permissions' },
   users: { __table: 'users' },
   auditLogs: { __table: 'audit_logs' },
+  healthRecords: { __table: 'health_records' },
+  serverRuntimeLogs: { __table: 'server_runtime_logs' },
+  marketplaceListings: { __table: 'marketplace_listings', [Symbol.for('drizzle:Name')]: 'marketplace_listings' },
+  marketplaceReviews: { __table: 'marketplace_reviews', [Symbol.for('drizzle:Name')]: 'marketplace_reviews' },
+  marketplaceInstalls: { __table: 'marketplace_installs', [Symbol.for('drizzle:Name')]: 'marketplace_installs' },
+  pipelineSteps: { __table: 'pipeline_steps' },
+  eq: (...args: unknown[]) => args,
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+  desc: (...args: unknown[]) => args,
+  and: (...args: unknown[]) => args,
+  gte: (...args: unknown[]) => args,
+  count: (...args: unknown[]) => args,
 };
 
 type TableRef = { __table: string };
 
 export interface MockDatabase {
   select: () => { from: (table: TableRef) => Promise<unknown[]> };
-  insert: (table: TableRef) => { values: (row: unknown) => Promise<void> };
+  insert: (table: TableRef) => { values: (row: unknown) => { run: () => void } & Promise<void> };
+  update: (table: TableRef) => { set: (data: unknown) => { where: (cond: unknown) => { run: () => void } } };
   run: jest.Mock<(...args: unknown[]) => void>;
   // Test helpers
   _getTable: (name: string) => unknown[];
@@ -64,8 +77,18 @@ export function createMockDatabase(): MockDatabase {
         const name = getTableName(table);
         if (!tables.has(name)) tables.set(name, []);
         tables.get(name)!.push({ ...(row as object) });
-        return Promise.resolve();
+        const p = Promise.resolve() as Promise<void> & { run: () => void };
+        p.run = () => {};
+        return p;
       },
+    }),
+
+    update: (_table: TableRef) => ({
+      set: (_data: unknown) => ({
+        where: (_cond: unknown) => ({
+          run: () => {},
+        }),
+      }),
     }),
 
     run: jest.fn(),

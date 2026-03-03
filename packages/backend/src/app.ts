@@ -27,6 +27,7 @@ import { createAuditMiddleware } from './middleware/audit.js';
 import { ConfigParser } from './core/config-parser.js';
 import { ServerRuntimeService } from './services/server-runtime-service.js';
 import { MarketplaceService } from './services/marketplace-service.js';
+import { MiddlewarePipeline } from './services/middleware-pipeline.js';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/routers.js';
 import { createTRPCContext } from './trpc/index.js';
@@ -68,6 +69,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   const sandboxService = new SandboxService();
   const healthService = new HealthService(db);
   const marketplaceService = new MarketplaceService(db);
+  const middlewarePipeline = new MiddlewarePipeline(db);
   const wsBroadcaster = new WSBroadcaster();
   const connectionManager = new ConnectionManager(serverService, toolConfigService);
   connectionManager.setHealthService(healthService);
@@ -153,6 +155,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
         healthService,
         serverRuntimeService,
         marketplaceService,
+        middlewarePipeline,
       }, db),
     }),
   );
@@ -183,6 +186,9 @@ export async function createApp(config: AppConfig = {}): Promise<{
     }
   }).catch(() => { /* non-critical */ });
   connectionManager.startHealthChecks();
+
+  // Load middleware pipelines from DB into memory
+  middlewarePipeline.loadAllPipelines().catch(() => { /* non-critical */ });
 
   // Start runtime health monitoring if enabled
   if (serverRuntimeService) {

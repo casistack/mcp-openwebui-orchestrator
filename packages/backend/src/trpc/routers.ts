@@ -643,6 +643,74 @@ export const appRouter = router({
     }),
   }),
 
+  // --- Middleware Pipeline ---
+  middleware: router({
+    listSteps: protectedProcedure
+      .input(z.object({ namespaceId: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const mw = ctx.services.middlewarePipeline;
+        if (!mw) return [];
+        return mw.loadPipeline(input.namespaceId);
+      }),
+
+    createStep: protectedProcedure
+      .input(z.object({
+        namespaceId: z.string(),
+        name: z.string(),
+        type: z.enum(['request-logger', 'tool-call-logger', 'rate-limiter', 'content-filter', 'request-transform', 'response-transform', 'header-injector']),
+        config: z.record(z.unknown()).optional(),
+        enabled: z.boolean().optional(),
+        order: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const mw = ctx.services.middlewarePipeline;
+        if (!mw) throw new Error('Middleware pipeline not available');
+        return mw.createStep(input.namespaceId, {
+          name: input.name,
+          type: input.type,
+          config: input.config,
+          enabled: input.enabled,
+          order: input.order,
+        });
+      }),
+
+    updateStep: protectedProcedure
+      .input(z.object({
+        stepId: z.string(),
+        name: z.string().optional(),
+        type: z.enum(['request-logger', 'tool-call-logger', 'rate-limiter', 'content-filter', 'request-transform', 'response-transform', 'header-injector']).optional(),
+        config: z.record(z.unknown()).optional(),
+        enabled: z.boolean().optional(),
+        order: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const mw = ctx.services.middlewarePipeline;
+        if (!mw) throw new Error('Middleware pipeline not available');
+        const { stepId, ...data } = input;
+        return mw.updateStep(stepId, data);
+      }),
+
+    deleteStep: protectedProcedure
+      .input(z.object({ stepId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const mw = ctx.services.middlewarePipeline;
+        if (!mw) throw new Error('Middleware pipeline not available');
+        return mw.deleteStep(input.stepId);
+      }),
+
+    reorderSteps: protectedProcedure
+      .input(z.object({
+        namespaceId: z.string(),
+        stepIds: z.array(z.string()),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const mw = ctx.services.middlewarePipeline;
+        if (!mw) throw new Error('Middleware pipeline not available');
+        await mw.reorderSteps(input.namespaceId, input.stepIds);
+        return { success: true };
+      }),
+  }),
+
   // --- Stats ---
   stats: protectedProcedure.query(async ({ ctx }) => {
     const [servers, namespaces, endpoints, marketplaceListings] = await Promise.all([

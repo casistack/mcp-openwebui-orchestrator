@@ -9,7 +9,7 @@
 	import {
 		LayoutDashboard, HeartPulse, Server, Layers, Globe,
 		Search, Lightbulb, KeyRound, ClipboardList, Settings,
-		Sun, Moon, Command, Store, Plus
+		Sun, Moon, Command, Store, Plus, Filter
 	} from '@lucide/svelte';
 
 	const navSections = [
@@ -26,6 +26,7 @@
 				{ href: '/servers', label: 'Servers', icon: Server },
 				{ href: '/namespaces', label: 'Namespaces', icon: Layers },
 				{ href: '/endpoints', label: 'Endpoints', icon: Globe },
+			{ href: '/middleware', label: 'Middleware', icon: Filter },
 			],
 		},
 		{

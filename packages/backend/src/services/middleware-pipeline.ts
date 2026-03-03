@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { auditLogs } from '@mcp-platform/db';
+import { auditLogs, pipelineSteps as pipelineStepsTable, eq, sql } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 // A middleware step in the pipeline
@@ -65,6 +65,127 @@ export class MiddlewarePipeline {
 
   getPipeline(namespaceId: string): PipelineStep[] {
     return this.pipelines.get(namespaceId) ?? [];
+  }
+
+  async loadPipeline(namespaceId: string): Promise<PipelineStep[]> {
+    const rows = await this.db.select().from(pipelineStepsTable);
+    const filtered = rows.filter(r => r.namespaceId === namespaceId);
+    const steps: PipelineStep[] = filtered.map(r => ({
+      id: r.id,
+      name: r.name,
+      type: r.type as PipelineStepType,
+      config: (r.config as Record<string, unknown>) ?? {},
+      enabled: r.enabled ?? true,
+      order: r.order,
+    }));
+    steps.sort((a, b) => a.order - b.order);
+    this.pipelines.set(namespaceId, steps);
+    return steps;
+  }
+
+  async loadAllPipelines(): Promise<void> {
+    const rows = await this.db.select().from(pipelineStepsTable);
+    const byNamespace = new Map<string, PipelineStep[]>();
+    for (const r of rows) {
+      const step: PipelineStep = {
+        id: r.id,
+        name: r.name,
+        type: r.type as PipelineStepType,
+        config: (r.config as Record<string, unknown>) ?? {},
+        enabled: r.enabled ?? true,
+        order: r.order,
+      };
+      const list = byNamespace.get(r.namespaceId) ?? [];
+      list.push(step);
+      byNamespace.set(r.namespaceId, list);
+    }
+    for (const [ns, steps] of byNamespace) {
+      steps.sort((a, b) => a.order - b.order);
+      this.pipelines.set(ns, steps);
+    }
+  }
+
+  async createStep(namespaceId: string, data: {
+    name: string;
+    type: PipelineStepType;
+    config?: Record<string, unknown>;
+    enabled?: boolean;
+    order?: number;
+  }): Promise<PipelineStep> {
+    const existing = await this.loadPipeline(namespaceId);
+    const step: PipelineStep = {
+      id: crypto.randomUUID(),
+      name: data.name,
+      type: data.type,
+      config: data.config ?? {},
+      enabled: data.enabled ?? true,
+      order: data.order ?? existing.length,
+    };
+    this.db.insert(pipelineStepsTable).values({
+      id: step.id,
+      namespaceId,
+      name: step.name,
+      type: step.type,
+      config: step.config,
+      enabled: step.enabled,
+      order: step.order,
+    }).run();
+    await this.loadPipeline(namespaceId);
+    return step;
+  }
+
+  async updateStep(stepId: string, data: {
+    name?: string;
+    type?: PipelineStepType;
+    config?: Record<string, unknown>;
+    enabled?: boolean;
+    order?: number;
+  }): Promise<boolean> {
+    const updateData: Record<string, unknown> = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.type !== undefined) updateData.type = data.type;
+    if (data.config !== undefined) updateData.config = data.config;
+    if (data.enabled !== undefined) updateData.enabled = data.enabled;
+    if (data.order !== undefined) updateData.order = data.order;
+    updateData.updatedAt = new Date();
+
+    if (Object.keys(updateData).length === 0) return false;
+
+    this.db.update(pipelineStepsTable)
+      .set(updateData)
+      .where(eq(pipelineStepsTable.id, stepId))
+      .run();
+
+    // Refresh the cache for the namespace this step belongs to
+    const rows = await this.db.select().from(pipelineStepsTable);
+    const row = rows.find(r => r.id === stepId);
+    if (row) await this.loadPipeline(row.namespaceId);
+    return true;
+  }
+
+  async deleteStep(stepId: string): Promise<boolean> {
+    const rows = await this.db.select().from(pipelineStepsTable);
+    const row = rows.find(r => r.id === stepId);
+    if (!row) return false;
+
+    this.db.run(sql`DELETE FROM pipeline_steps WHERE id = ${stepId}`);
+    await this.loadPipeline(row.namespaceId);
+    return true;
+  }
+
+  async reorderSteps(namespaceId: string, stepIds: string[]): Promise<void> {
+    for (let i = 0; i < stepIds.length; i++) {
+      this.db.update(pipelineStepsTable)
+        .set({ order: i, updatedAt: new Date() })
+        .where(eq(pipelineStepsTable.id, stepIds[i]))
+        .run();
+    }
+    await this.loadPipeline(namespaceId);
+  }
+
+  async getStepCount(): Promise<number> {
+    const rows = await this.db.select().from(pipelineStepsTable);
+    return rows.length;
   }
 
   async execute(
