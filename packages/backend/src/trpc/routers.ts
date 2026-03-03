@@ -807,6 +807,82 @@ export const appRouter = router({
       }),
   }),
 
+  // --- OAuth Tokens (per-user endpoint credentials) ---
+  oauthTokens: router({
+    list: protectedProcedure
+      .input(z.object({ endpointId: z.string().optional() }))
+      .query(async ({ ctx, input }) => {
+        const svc = ctx.services.oauthTokenService;
+        if (!svc) return [];
+        return svc.getTokensForUser(ctx.user.id, input.endpointId);
+      }),
+
+    get: protectedProcedure
+      .input(z.object({ endpointId: z.string(), provider: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const svc = ctx.services.oauthTokenService;
+        if (!svc) return null;
+        return svc.getActiveToken(ctx.user.id, input.endpointId, input.provider);
+      }),
+
+    set: protectedProcedure
+      .input(z.object({
+        endpointId: z.string(),
+        provider: z.string(),
+        accessToken: z.string(),
+        refreshToken: z.string().optional(),
+        expiresAt: z.string().optional(),
+        scopes: z.string().optional(),
+        tokenType: z.string().optional(),
+        metadata: z.record(z.unknown()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.oauthTokenService;
+        if (!svc) throw new Error('OAuth token service not available');
+        return svc.setToken({
+          userId: ctx.user.id,
+          endpointId: input.endpointId,
+          provider: input.provider,
+          accessToken: input.accessToken,
+          refreshToken: input.refreshToken,
+          expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
+          scopes: input.scopes,
+          tokenType: input.tokenType,
+          metadata: input.metadata as Record<string, unknown> | undefined,
+        });
+      }),
+
+    revoke: protectedProcedure
+      .input(z.object({ tokenId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.oauthTokenService;
+        if (!svc) throw new Error('OAuth token service not available');
+        return svc.revokeToken(input.tokenId);
+      }),
+
+    revokeAll: protectedProcedure
+      .input(z.object({ endpointId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.oauthTokenService;
+        if (!svc) throw new Error('OAuth token service not available');
+        return svc.revokeAllForEndpoint(ctx.user.id, input.endpointId);
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ tokenId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.oauthTokenService;
+        if (!svc) throw new Error('OAuth token service not available');
+        return svc.deleteToken(input.tokenId);
+      }),
+
+    count: protectedProcedure.query(async ({ ctx }) => {
+      const svc = ctx.services.oauthTokenService;
+      if (!svc) return 0;
+      return svc.getTokenCount(ctx.user.id);
+    }),
+  }),
+
   // --- Stats ---
   stats: protectedProcedure.query(async ({ ctx }) => {
     const [servers, namespaces, endpoints, marketplaceListings] = await Promise.all([
