@@ -413,6 +413,170 @@ export const appRouter = router({
       }),
   }),
 
+  // --- Marketplace ---
+  marketplace: router({
+    list: protectedProcedure
+      .input(z.object({
+        category: z.string().optional(),
+        status: z.string().optional(),
+        search: z.string().optional(),
+        featured: z.boolean().optional(),
+      }).optional())
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return [];
+        return ms.listListings(input);
+      }),
+
+    get: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return null;
+        return ms.getListing(input.id);
+      }),
+
+    getBySlug: protectedProcedure
+      .input(z.object({ slug: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return null;
+        return ms.getListingBySlug(input.slug);
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        slug: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
+        shortDescription: z.string().optional(),
+        description: z.string().optional(),
+        category: z.string(),
+        tags: z.array(z.string()).optional(),
+        transport: z.enum(['stdio', 'sse', 'streamable-http']),
+        config: z.object({
+          command: z.string().optional(),
+          args: z.array(z.string()).optional(),
+          cwd: z.string().optional(),
+          url: z.string().optional(),
+          headers: z.record(z.string()).optional(),
+          proxyType: z.string().optional(),
+          needsProxy: z.boolean().optional(),
+        }).optional(),
+        version: z.string().optional(),
+        requirements: z.object({
+          envVars: z.array(z.object({
+            key: z.string(),
+            description: z.string(),
+            required: z.boolean(),
+          })).optional(),
+          dependencies: z.array(z.string()).optional(),
+        }).optional(),
+        compatibility: z.array(z.string()).optional(),
+        iconUrl: z.string().optional(),
+        screenshots: z.array(z.string()).optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.createListing({ ...input, publisherId: ctx.user.id });
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.string(),
+        data: z.object({
+          name: z.string().optional(),
+          shortDescription: z.string().optional(),
+          description: z.string().optional(),
+          category: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+          transport: z.string().optional(),
+          config: z.record(z.unknown()).optional(),
+          version: z.string().optional(),
+          iconUrl: z.string().optional(),
+          screenshots: z.array(z.string()).optional(),
+          isPublic: z.boolean().optional(),
+          status: z.string().optional(),
+        }),
+      }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.updateListing(input.id, input.data);
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.deleteListing(input.id);
+      }),
+
+    install: protectedProcedure
+      .input(z.object({ listingId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.installListing(input.listingId, ctx.user.id);
+      }),
+
+    uninstall: protectedProcedure
+      .input(z.object({ installId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.uninstallListing(input.installId);
+      }),
+
+    myInstalls: protectedProcedure.query(({ ctx }) => {
+      const ms = ctx.services.marketplaceService;
+      if (!ms) return [];
+      return ms.getUserInstalls(ctx.user.id);
+    }),
+
+    reviews: protectedProcedure
+      .input(z.object({ listingId: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return [];
+        return ms.getReviews(input.listingId);
+      }),
+
+    submitReview: protectedProcedure
+      .input(z.object({
+        listingId: z.string(),
+        rating: z.number().min(1).max(5),
+        title: z.string().optional(),
+        body: z.string().optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.submitReview(input.listingId, ctx.user.id, input.rating, input.title, input.body);
+      }),
+
+    categories: protectedProcedure.query(({ ctx }) => {
+      const ms = ctx.services.marketplaceService;
+      if (!ms) return [];
+      return ms.getCategories();
+    }),
+
+    trending: protectedProcedure
+      .input(z.object({ limit: z.number().optional() }).optional())
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return [];
+        return ms.getTrending(input?.limit ?? 10);
+      }),
+
+    featured: protectedProcedure.query(({ ctx }) => {
+      const ms = ctx.services.marketplaceService;
+      if (!ms) return [];
+      return ms.getFeatured();
+    }),
+  }),
+
   // --- Runtime ---
   runtime: router({
     start: protectedProcedure

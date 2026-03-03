@@ -7,3 +7,4 @@ export * from './api-keys';
 export * from './audit-logs';
 export * from './health-records';
 export * from './tool-configs';
+export * from './marketplace';

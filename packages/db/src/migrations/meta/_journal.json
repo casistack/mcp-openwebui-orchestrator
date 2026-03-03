@@ -15,6 +15,13 @@
       "when": 1772578800000,
       "tag": "0001_server_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1772665200000,
+      "tag": "0002_marketplace",
+      "breakpoints": true
     }
   ]
 }

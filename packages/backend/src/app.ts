@@ -26,6 +26,7 @@ import { createOpenAPIRouter } from './routes/openapi.js';
 import { createAuditMiddleware } from './middleware/audit.js';
 import { ConfigParser } from './core/config-parser.js';
 import { ServerRuntimeService } from './services/server-runtime-service.js';
+import { MarketplaceService } from './services/marketplace-service.js';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/routers.js';
 import { createTRPCContext } from './trpc/index.js';
@@ -66,6 +67,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   const secretsService = new SecretsService(db);
   const sandboxService = new SandboxService();
   const healthService = new HealthService(db);
+  const marketplaceService = new MarketplaceService(db);
   const wsBroadcaster = new WSBroadcaster();
   const connectionManager = new ConnectionManager(serverService, toolConfigService);
   connectionManager.setHealthService(healthService);
@@ -150,6 +152,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
         connectionManager,
         healthService,
         serverRuntimeService,
+        marketplaceService,
       }, db),
     }),
   );
