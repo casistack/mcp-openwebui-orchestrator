@@ -645,10 +645,11 @@ export const appRouter = router({
 
   // --- Stats ---
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const [servers, namespaces, endpoints] = await Promise.all([
+    const [servers, namespaces, endpoints, marketplaceListings] = await Promise.all([
       ctx.services.serverService.getServerCount(),
       ctx.services.namespaceService.getNamespaceCount(),
       ctx.services.endpointService.getEndpointCount(),
+      ctx.services.marketplaceService?.getListingCount() ?? Promise.resolve(0),
     ]);
 
     const cm = ctx.services.connectionManager;
@@ -660,6 +661,7 @@ export const appRouter = router({
       namespaces,
       endpoints,
       connectedServers: connectedCount,
+      marketplaceListings,
       timestamp: new Date(),
     };
   }),

@@ -7,9 +7,9 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { Activity, Server, Layers, Globe, Zap, AlertCircle } from '@lucide/svelte';
+	import { Activity, Server, Layers, Globe, Zap, AlertCircle, Store } from '@lucide/svelte';
 
-	interface Stats { servers: number; namespaces: number; endpoints: number; connectedServers?: number; }
+	interface Stats { servers: number; namespaces: number; endpoints: number; connectedServers?: number; marketplaceListings?: number; }
 	interface Connection { serverId: string; status: string; toolCount: number; lastPingMs: number | null; lastError: string | null; connectTime: string | null; reconnectAttempts: number; }
 	interface ToolCallStats { totalCalls: number; successCalls: number; failedCalls: number; avgDurationMs: number; }
 
@@ -92,7 +92,7 @@
 			<AlertDescription>{error}</AlertDescription>
 		</Alert>
 	{:else if stats}
-		<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+		<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
 			<Card.Root>
 				<Card.Header class="flex flex-row items-center justify-between space-y-0 pb-2">
 					<Card.Title class="text-sm font-medium">Servers</Card.Title>
@@ -121,6 +121,16 @@
 				</Card.Header>
 				<Card.Content>
 					<div class="text-2xl font-bold">{stats.endpoints}</div>
+				</Card.Content>
+			</Card.Root>
+			<Card.Root>
+				<Card.Header class="flex flex-row items-center justify-between space-y-0 pb-2">
+					<Card.Title class="text-sm font-medium">Marketplace</Card.Title>
+					<Store class="size-4 text-muted-foreground" />
+				</Card.Header>
+				<Card.Content>
+					<div class="text-2xl font-bold">{stats.marketplaceListings ?? 0}</div>
+					<p class="text-xs text-muted-foreground"><a href="/marketplace" class="hover:underline">Browse listings</a></p>
 				</Card.Content>
 			</Card.Root>
 			<Card.Root>
@@ -179,8 +189,8 @@
 			</Card.Root>
 		{/if}
 	{:else}
-		<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-			{#each [1, 2, 3, 4] as _}
+		<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+			{#each [1, 2, 3, 4, 5] as _}
 				<Card.Root>
 					<Card.Header class="pb-2"><Skeleton class="h-4 w-20" /></Card.Header>
 					<Card.Content><Skeleton class="h-8 w-16" /></Card.Content>
