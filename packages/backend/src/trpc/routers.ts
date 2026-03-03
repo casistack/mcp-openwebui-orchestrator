@@ -360,6 +360,40 @@ export const appRouter = router({
         };
       }),
 
+    perToolStats: protectedProcedure
+      .input(z.object({ hours: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const db = ctx.db;
+        if (!db) return [];
+
+        const hours = input?.hours ?? 24;
+        const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+        const rows = await db
+          .select({
+            toolName: auditLogs.resourceId,
+            totalCalls: count(),
+            successCalls: sql<number>`SUM(CASE WHEN ${auditLogs.status} = 'success' THEN 1 ELSE 0 END)`,
+            failedCalls: sql<number>`SUM(CASE WHEN ${auditLogs.status} = 'failure' THEN 1 ELSE 0 END)`,
+            avgDurationMs: sql<number>`AVG(${auditLogs.durationMs})`,
+          })
+          .from(auditLogs)
+          .where(and(
+            eq(auditLogs.action, 'tools/call'),
+            gte(auditLogs.createdAt, since),
+          ))
+          .groupBy(auditLogs.resourceId)
+          .orderBy(sql`COUNT(*) DESC`);
+
+        return rows.map((r: { toolName: string | null; totalCalls: number; successCalls: number; failedCalls: number; avgDurationMs: number }) => ({
+          toolName: r.toolName ?? 'unknown',
+          totalCalls: r.totalCalls ?? 0,
+          successCalls: r.successCalls ?? 0,
+          failedCalls: r.failedCalls ?? 0,
+          avgDurationMs: r.avgDurationMs ? Math.round(r.avgDurationMs) : 0,
+        }));
+      }),
+
     recent: protectedProcedure
       .input(z.object({ limit: z.number().optional() }).optional())
       .query(async ({ ctx, input }) => {

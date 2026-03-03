@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { trpc } from '$lib/trpc';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
 	import { Button } from '$lib/components/ui/button';
@@ -7,13 +8,15 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { ClipboardList, AlertCircle, ChevronLeft, ChevronRight } from '@lucide/svelte';
+	import { ClipboardList, AlertCircle, ChevronLeft, ChevronRight, BarChart3 } from '@lucide/svelte';
 
 	interface AuditEntry {
 		id: string; userId: string | null; action: string; resource: string;
 		resourceId: string | null; status: string; ipAddress: string | null;
 		durationMs: number | null; createdAt: string; details?: Record<string, unknown>;
 	}
+
+	interface ToolStat { toolName: string; totalCalls: number; successCalls: number; failedCalls: number; avgDurationMs: number; }
 
 	let logs = $state<AuditEntry[]>([]);
 	let total = $state(0);
@@ -23,6 +26,7 @@
 	let searchQuery = $state('');
 	let actionFilter = $state('all');
 	let statusFilter = $state('all');
+	let toolStats = $state<ToolStat[]>([]);
 	const limit = 50;
 
 	async function load() {
@@ -39,7 +43,10 @@
 		loading = false;
 	}
 
-	onMount(load);
+	onMount(async () => {
+		load();
+		trpc.audit.perToolStats.query().then(r => { toolStats = r; }).catch(() => {});
+	});
 
 	function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
 		switch (status) {
@@ -75,6 +82,51 @@
 	</div>
 
 	{#if error}<Alert variant="destructive" class="mb-4"><AlertCircle class="size-4" /><AlertDescription>{error}</AlertDescription></Alert>{/if}
+
+	{#if toolStats.length > 0}
+		<Card.Root class="mb-6">
+			<Card.Header>
+				<Card.Title class="flex items-center gap-2 text-base">
+					<BarChart3 class="size-4" />
+					Tool Usage (24h)
+				</Card.Title>
+			</Card.Header>
+			<Card.Content class="p-0">
+				<Table.Root>
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Tool</Table.Head>
+							<Table.Head class="text-right">Calls</Table.Head>
+							<Table.Head class="text-right">Success</Table.Head>
+							<Table.Head class="text-right">Failed</Table.Head>
+							<Table.Head class="text-right">Error Rate</Table.Head>
+							<Table.Head class="text-right">Avg Duration</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each toolStats.slice(0, 10) as stat}
+							<Table.Row class="text-sm">
+								<Table.Cell class="font-mono text-xs">{stat.toolName}</Table.Cell>
+								<Table.Cell class="text-right font-medium">{stat.totalCalls}</Table.Cell>
+								<Table.Cell class="text-right text-green-600 dark:text-green-400">{stat.successCalls}</Table.Cell>
+								<Table.Cell class="text-right text-red-600 dark:text-red-400">{stat.failedCalls}</Table.Cell>
+								<Table.Cell class="text-right">
+									{#if stat.totalCalls > 0}
+										<Badge variant={stat.failedCalls / stat.totalCalls > 0.1 ? 'destructive' : 'outline'} class="text-xs">
+											{Math.round((stat.failedCalls / stat.totalCalls) * 100)}%
+										</Badge>
+									{:else}
+										-
+									{/if}
+								</Table.Cell>
+								<Table.Cell class="text-right font-mono text-xs">{stat.avgDurationMs}ms</Table.Cell>
+							</Table.Row>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			</Card.Content>
+		</Card.Root>
+	{/if}
 
 	<div class="flex flex-wrap gap-3 mb-4">
 		<div class="flex-1 min-w-[200px]">
