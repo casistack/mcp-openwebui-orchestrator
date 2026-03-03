@@ -1,5 +1,7 @@
 <script lang="ts">
 	import '../app.css';
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ModeWatcher, toggleMode, mode as modeState } from 'mode-watcher';
 	import { Toaster } from '$lib/components/ui/sonner';
@@ -11,6 +13,31 @@
 		Search, Lightbulb, KeyRound, ClipboardList, Settings,
 		Sun, Moon, Command, Store, Plus, Filter, Shield, Lock
 	} from '@lucide/svelte';
+
+	let authChecked = $state(false);
+	let authenticated = $state(false);
+
+	onMount(async () => {
+		if (page.url.pathname === '/login') {
+			authChecked = true;
+			return;
+		}
+		try {
+			const res = await fetch('/api/auth/get-session', { credentials: 'include' });
+			if (res.ok) {
+				const data = await res.json();
+				if (data?.session) {
+					authenticated = true;
+					authChecked = true;
+					return;
+				}
+			}
+		} catch {
+			// Session check failed
+		}
+		authChecked = true;
+		goto('/login');
+	});
 
 	const navSections = [
 		{
@@ -76,6 +103,14 @@
 
 {#if isLoginPage}
 	{@render children()}
+{:else if !authChecked}
+	<div class="flex items-center justify-center h-screen">
+		<div class="animate-pulse text-muted-foreground text-sm">Loading...</div>
+	</div>
+{:else if !authenticated}
+	<div class="flex items-center justify-center h-screen">
+		<div class="text-muted-foreground text-sm">Redirecting to login...</div>
+	</div>
 {:else}
 	<Sidebar.SidebarProvider>
 		<Sidebar.Sidebar collapsible="icon" variant="sidebar">
