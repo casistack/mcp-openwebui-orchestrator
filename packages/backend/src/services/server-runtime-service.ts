@@ -11,8 +11,7 @@ import type { AppDatabase } from '@mcp-platform/db';
 import { serverRuntimeLogs, mcpServers, eq } from '@mcp-platform/db';
 import { secureLogger } from '../core/secure-logger.js';
 import { classifyError, isInformationalMessage, type ClassifiedError } from '../core/error-classifier.js';
-
-const ALLOWED_COMMANDS = new Set(['npx', 'uvx', 'uv', 'python', 'node', 'docker']);
+import { validateCommand, validateArgs } from '../core/command-validator.js';
 
 const MAX_LOG_BUFFER = 200;
 const HEALTH_CHECK_TIMEOUT_MS = 5_000;
@@ -106,9 +105,15 @@ export class ServerRuntimeService extends EventEmitter {
       if (!server.command) {
         throw new Error(`Server ${serverId} has no command configured`);
       }
-      const baseCmd = path.basename(server.command.split(' ')[0]);
-      if (!ALLOWED_COMMANDS.has(baseCmd)) {
-        throw new Error(`Command "${baseCmd}" is not in the allowed commands list`);
+      const cmdResult = validateCommand(server.command);
+      if (!cmdResult.valid) {
+        throw new Error(`Server ${serverId}: ${cmdResult.error}`);
+      }
+      if (server.args) {
+        const argsResult = validateArgs(server.args);
+        if (!argsResult.valid) {
+          throw new Error(`Server ${serverId}: ${argsResult.error}`);
+        }
       }
     }
 

@@ -101,6 +101,40 @@ export async function createApp(config: AppConfig = {}): Promise<{
     ? new RuntimeModeManager(serverRuntimeService, unifiedRuntimeService, multiTransportService, db)
     : null;
 
+  // Coordinate runtime events with connection manager
+  if (serverRuntimeService) {
+    serverRuntimeService.on('process:started', async (data: Record<string, unknown>) => {
+      const { serverId, port } = data;
+      if (typeof serverId === 'string' && typeof port === 'number') {
+        try {
+          await connectionManager.connect({
+            id: serverId,
+            transport: 'sse' as const,
+            url: `http://localhost:${port}/sse`,
+          });
+        } catch { /* connection will be retried by health checks */ }
+      }
+    });
+
+    serverRuntimeService.on('process:stopped', async (data: Record<string, unknown>) => {
+      const { serverId } = data;
+      if (typeof serverId === 'string') {
+        try {
+          await connectionManager.disconnect(serverId);
+        } catch { /* already disconnected */ }
+      }
+    });
+
+    serverRuntimeService.on('process:crashed', async (data: Record<string, unknown>) => {
+      const { serverId } = data;
+      if (typeof serverId === 'string') {
+        try {
+          await connectionManager.disconnect(serverId);
+        } catch { /* already disconnected */ }
+      }
+    });
+  }
+
   // Seed default RBAC roles/permissions on first run
   await rbacService.seedDefaults();
 

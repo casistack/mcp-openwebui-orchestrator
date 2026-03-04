@@ -99,6 +99,54 @@ jobs:
         directory: ./mcp-proxy-manager/coverage
         fail_ci_if_error: false
 
+  # Job 2b: Platform Tests (enterprise monorepo)
+  platform-test:
+    runs-on: ubuntu-latest
+    name: Platform Tests
+    strategy:
+      matrix:
+        node-version: [20, 22]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 9
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Build platform packages
+      run: pnpm turbo run build
+
+    - name: Run platform tests
+      run: pnpm turbo run test
+
+  # Job 2c: Platform Docker Build
+  platform-docker:
+    runs-on: ubuntu-latest
+    name: Platform Docker Build
+    needs: [platform-test]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build platform Docker image
+      run: |
+        docker compose -f docker-compose.platform.yml build platform
+
   # Job 3: Docker Build and Test
   docker-test:
     runs-on: ubuntu-latest
@@ -254,7 +302,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy to Staging
-    needs: [test, docker-test, e2e-real, performance, security]
+    needs: [test, platform-test, docker-test, platform-docker, e2e-real, performance, security]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: staging
@@ -286,18 +334,18 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     name: Notify Results
-    needs: [code-quality, test, docker-test, security]
+    needs: [code-quality, test, platform-test, docker-test, platform-docker, security]
     if: always()
     
     steps:
     - name: Notify on success
-      if: needs.test.result == 'success' && needs.docker-test.result == 'success'
+      if: needs.test.result == 'success' && needs.platform-test.result == 'success' && needs.docker-test.result == 'success'
       run: |
-        echo "✅ All tests passed! Ready for deployment."
+        echo "All tests passed (legacy + platform). Ready for deployment."
         # Add Slack/Discord/Email notifications here
-    
+
     - name: Notify on failure
-      if: needs.test.result == 'failure' || needs.docker-test.result == 'failure'
+      if: needs.test.result == 'failure' || needs.platform-test.result == 'failure' || needs.docker-test.result == 'failure'
       run: |
         echo "❌ Tests failed! Check the logs."
         # Add failure notifications here
