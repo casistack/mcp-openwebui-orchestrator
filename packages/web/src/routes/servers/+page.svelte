@@ -300,7 +300,7 @@
 										class="size-4 rounded border-input accent-primary cursor-pointer"
 									/>
 								</Table.Cell>
-								<Table.Cell class="font-mono text-xs font-medium">{server.displayName || server.name}</Table.Cell>
+								<Table.Cell class="font-mono text-xs font-medium"><a href="/servers/{server.id}" class="hover:underline text-primary">{server.displayName || server.name}</a></Table.Cell>
 								<Table.Cell><Badge variant="secondary">{server.transport}</Badge></Table.Cell>
 								<Table.Cell><Badge variant={status.variant}>{status.label}</Badge></Table.Cell>
 								{#if runtimeEnabled}

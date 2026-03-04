@@ -59,6 +59,88 @@ export const appRouter = router({
       }),
   }),
 
+  // --- Server Env Vars ---
+  serverEnvVars: router({
+    list: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const envVars = await ctx.services.serverService.getEnvVars(input.serverId);
+        return envVars.map(e => ({
+          id: e.id,
+          key: e.key,
+          isSecret: e.isSecret,
+          createdAt: e.createdAt,
+          updatedAt: e.updatedAt,
+        }));
+      }),
+
+    set: protectedProcedure
+      .input(z.object({
+        serverId: z.string(),
+        key: z.string().min(1),
+        value: z.string(),
+        isSecret: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return ctx.services.serverService.setEnvVar(
+          input.serverId,
+          input.key,
+          input.value,
+          input.isSecret ?? true,
+        );
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ serverId: z.string(), key: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await ctx.services.serverService.deleteEnvVar(input.serverId, input.key);
+        return { ok: result };
+      }),
+  }),
+
+  // --- Config Reimport ---
+  configImport: router({
+    reimport: protectedProcedure.mutation(async ({ ctx }) => {
+      // Dynamically import config parser and re-import servers
+      const { ConfigParser } = await import('../core/config-parser.js');
+      const configPath = process.env.CLAUDE_CONFIG_PATH ?? '/config/claude_desktop_config.json';
+      const parser = new ConfigParser(configPath);
+      const servers = await parser.getMCPServers();
+
+      let imported = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      for (const server of servers) {
+        try {
+          const existing = await ctx.services.serverService.getServer(
+            server.name?.toLowerCase().replace(/[^a-z0-9-_]/g, '-') ?? server.id,
+          );
+          if (existing) {
+            skipped++;
+            continue;
+          }
+          await ctx.services.serverService.createServer({
+            name: server.name || server.id,
+            transport: server.transport,
+            command: server.command,
+            args: server.args,
+            cwd: server.cwd,
+            url: server.url,
+            headers: server.headers,
+            proxyType: server.proxyType,
+            needsProxy: server.needsProxy,
+          });
+          imported++;
+        } catch {
+          failed++;
+        }
+      }
+
+      return { imported, skipped, failed, total: servers.length };
+    }),
+  }),
+
   // --- Namespaces ---
   namespaces: router({
     list: protectedProcedure.query(({ ctx }) => {
