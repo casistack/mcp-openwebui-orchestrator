@@ -14,6 +14,7 @@ import type { MiddlewarePipeline } from '../services/middleware-pipeline.js';
 import type { ToolPermissionService } from '../services/tool-permission-service.js';
 import type { OAuthTokenService } from '../services/oauth-token-service.js';
 import type { AlertService } from '../services/alert-service.js';
+import type { ConfigSourcesService } from '../services/config-sources-service.js';
 import type { AppDatabase } from '@mcp-platform/db';
 import type { Auth } from '../services/auth.js';
 
@@ -36,6 +37,7 @@ export interface TRPCContext {
     toolPermissionService?: ToolPermissionService;
     oauthTokenService?: OAuthTokenService;
     alertService?: AlertService;
+    configSourcesService?: ConfigSourcesService;
   };
 }
 

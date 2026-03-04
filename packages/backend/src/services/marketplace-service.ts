@@ -265,6 +265,7 @@ export class MarketplaceService {
       needsProxy: config?.needsProxy ?? true,
       status: 'inactive',
       isPublic: false,
+      source: 'marketplace',
       createdBy: userId,
       createdAt: now,
       updatedAt: now,

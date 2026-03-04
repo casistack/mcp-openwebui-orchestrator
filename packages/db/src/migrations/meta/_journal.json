@@ -85,6 +85,13 @@
       "when": 1773442800000,
       "tag": "0011_server_source",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1773529200000,
+      "tag": "0012_config_sources",
+      "breakpoints": true
     }
   ]
 }

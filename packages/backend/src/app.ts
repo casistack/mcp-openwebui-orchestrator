@@ -24,7 +24,6 @@ import { ImportExportService } from './services/import-export-service.js';
 import { createMCPProtocolRouter } from './routes/mcp-protocol.js';
 import { createOpenAPIRouter } from './routes/openapi.js';
 import { createAuditMiddleware } from './middleware/audit.js';
-import { ConfigParser } from './core/config-parser.js';
 import { ServerRuntimeService } from './services/server-runtime-service.js';
 import { UnifiedRuntimeService } from './services/unified-runtime-service.js';
 import { MultiTransportService } from './services/multi-transport-service.js';
@@ -34,6 +33,7 @@ import { MiddlewarePipeline } from './services/middleware-pipeline.js';
 import { ToolPermissionService } from './services/tool-permission-service.js';
 import { OAuthTokenService } from './services/oauth-token-service.js';
 import { AlertService } from './services/alert-service.js';
+import { ConfigSourcesService } from './services/config-sources-service.js';
 import { SystemMetricsService } from './services/system-metrics-service.js';
 import { LogRotationService } from './services/log-rotation-service.js';
 import rateLimit from 'express-rate-limit';
@@ -83,6 +83,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   const toolPermissionService = new ToolPermissionService(db);
   const oauthTokenService = new OAuthTokenService(db);
   const alertService = new AlertService(db, healthService);
+  const configSourcesService = new ConfigSourcesService(db, serverService);
   const wsBroadcaster = new WSBroadcaster();
   const connectionManager = new ConnectionManager(serverService, toolConfigService);
   connectionManager.setHealthService(healthService);
@@ -247,6 +248,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
         toolPermissionService,
         oauthTokenService,
         alertService,
+        configSourcesService,
       }, db),
     }),
   );
@@ -286,8 +288,12 @@ export async function createApp(config: AppConfig = {}): Promise<{
     app.use(handler);
   }
 
-  // Auto-import on first startup
-  await autoImportServers(db, serverService, config.configPath);
+  // Config sources: migrate from legacy on first run, then sync all
+  try {
+    await configSourcesService.migrateFromLegacy();
+  } catch { /* already migrated or no config file */ }
+  configSourcesService.syncAll().catch(() => { /* non-critical */ });
+  configSourcesService.startAutoSync();
 
   // Auto-connect to all servers and start health monitoring
   connectionManager.connectAll().then(({ connected, failed }) => {
@@ -330,53 +336,3 @@ export async function createApp(config: AppConfig = {}): Promise<{
   return { app, db, auth, serverService, rbacService, connectionManager, wsBroadcaster, healthService, serverRuntimeService, runtimeModeManager };
 }
 
-async function autoImportServers(
-  db: AppDatabase,
-  serverService: ServerService,
-  configPath?: string,
-) {
-  try {
-    const count = await serverService.getServerCount();
-    if (count > 0) return;
-
-    // Check for dismissed servers (ones the user previously deleted)
-    const { configDismissedServers } = await import('@mcp-platform/db');
-    const dismissed = await db.select().from(configDismissedServers);
-    const dismissedNames = new Set(dismissed.map(d => d.serverName));
-
-    const cfgPath = configPath ?? process.env.CLAUDE_CONFIG_PATH ?? '/config/claude_desktop_config.json';
-    const parser = new ConfigParser(cfgPath);
-    const servers = await parser.getMCPServers();
-
-    if (servers.length === 0) return;
-
-    const toImport = servers.filter(s => !dismissedNames.has(s.name || s.id));
-    if (toImport.length === 0) return;
-
-    console.log(`Auto-importing ${toImport.length} servers from Claude Desktop config (${dismissed.length} dismissed)...`);
-
-    for (const server of toImport) {
-      try {
-        await serverService.createServer({
-          name: server.name || server.id,
-          transport: server.transport,
-          command: server.command,
-          args: server.args,
-          cwd: server.cwd,
-          url: server.url,
-          headers: server.headers,
-          proxyType: server.proxyType,
-          needsProxy: server.needsProxy,
-          source: 'config',
-        });
-        console.log(`  Imported: ${server.id}`);
-      } catch (err) {
-        console.warn(`  Failed to import ${server.id}: ${(err as Error).message}`);
-      }
-    }
-
-    console.log('Auto-import complete');
-  } catch (error) {
-    console.warn('Auto-import skipped:', (error as Error).message);
-  }
-}

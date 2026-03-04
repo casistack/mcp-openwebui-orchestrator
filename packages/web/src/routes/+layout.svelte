@@ -13,7 +13,7 @@
 		LayoutDashboard, HeartPulse, Server, Layers, Globe,
 		Search, Lightbulb, KeyRound, ClipboardList, Settings,
 		Sun, Moon, Command, Store, Plus, Filter, Shield, Lock,
-		FolderOpen, BarChart3, Activity, Key, Building
+		FolderOpen, BarChart3, Activity, Key, Building, FolderSync
 	} from '@lucide/svelte';
 
 	let authChecked = $state(false);
@@ -56,6 +56,7 @@
 			label: 'Infrastructure',
 			items: [
 				{ href: '/servers', label: 'Servers', icon: Server },
+				{ href: '/sources', label: 'Config Sources', icon: FolderSync },
 				{ href: '/namespaces', label: 'Namespaces', icon: Layers },
 				{ href: '/endpoints', label: 'Endpoints', icon: Globe },
 			{ href: '/middleware', label: 'Middleware', icon: Filter },

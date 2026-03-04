@@ -8,7 +8,7 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { LogOut, AlertCircle, CheckCircle, Radio, FileCode, RefreshCw, Undo2 } from '@lucide/svelte';
+	import { LogOut, AlertCircle, CheckCircle, Radio } from '@lucide/svelte';
 	import { Switch } from '$lib/components/ui/switch';
 	import { trpc } from '$lib/trpc';
 
@@ -31,16 +31,6 @@
 	let modeSwitching = $state(false);
 	let transportConfig = $state({ sse: true, websocket: true, streamableHttp: true });
 	let transportSaving = $state(false);
-
-	// Config viewer state
-	interface ConfigServer { id: string; name: string; transport: string; command?: string; args?: string[]; url?: string; }
-	interface DismissedEntry { id: string; serverName: string; dismissedAt: string | null; }
-	let configServers = $state<ConfigServer[]>([]);
-	let configPath = $state('');
-	let configRaw = $state<unknown>(null);
-	let configDismissed = $state<DismissedEntry[]>([]);
-	let configLoading = $state(false);
-	let reimporting = $state(false);
 
 	const runtimeModes: { id: RuntimeMode; label: string; desc: string }[] = [
 		{ id: 'individual', label: 'Individual', desc: 'Separate proxy per server. Port-based access (4200, 4201, ...). Best for development and debugging.' },
@@ -73,41 +63,6 @@
 				transportConfig = tc;
 			}
 		} catch { /* runtime mode not available */ }
-	}
-
-	async function loadConfig() {
-		configLoading = true;
-		try {
-			const result = await trpc.configImport.getConfig.query() as { configPath: string; servers: ConfigServer[]; raw: unknown };
-			configPath = result.configPath;
-			configServers = result.servers;
-			configRaw = result.raw;
-			const dismissed = await trpc.configImport.getDismissed.query() as DismissedEntry[];
-			configDismissed = dismissed;
-		} catch { /* config not available */ }
-		configLoading = false;
-	}
-
-	async function handleReimport() {
-		reimporting = true;
-		error = null;
-		try {
-			const result = await trpc.configImport.reimport.mutate() as { imported: number; skipped: number; failed: number; total: number };
-			success = `Imported ${result.imported} servers (${result.skipped} skipped, ${result.failed} failed)`;
-		} catch (e: unknown) {
-			error = e instanceof Error ? e.message : 'Failed to reimport';
-		}
-		reimporting = false;
-	}
-
-	async function handleUndismiss(serverName: string) {
-		try {
-			await trpc.configImport.undismiss.mutate({ serverName });
-			configDismissed = configDismissed.filter(d => d.serverName !== serverName);
-			success = `"${serverName}" will be imported on next reimport`;
-		} catch (e: unknown) {
-			error = e instanceof Error ? e.message : 'Failed to undismiss';
-		}
 	}
 
 	async function handleModeSwitch(newMode: RuntimeMode) {
@@ -180,7 +135,6 @@
 			<Tabs.List class="mb-6">
 				<Tabs.Trigger value="profile">Profile</Tabs.Trigger>
 				<Tabs.Trigger value="appearance">Appearance</Tabs.Trigger>
-				<Tabs.Trigger value="config" onclick={() => { if (!configServers.length && !configLoading) loadConfig(); }}>Config File</Tabs.Trigger>
 				{#if runtimeAvailable}<Tabs.Trigger value="runtime">Runtime Mode</Tabs.Trigger>{/if}
 				{#if isAdmin}<Tabs.Trigger value="users">User Management</Tabs.Trigger>{/if}
 			</Tabs.List>
@@ -236,85 +190,6 @@
 						<div class="flex justify-between py-1"><span class="text-muted-foreground">Backend</span><span class="font-mono text-xs">Express 5 + tRPC</span></div>
 					</Card.Content>
 				</Card.Root>
-			</Tabs.Content>
-
-			<Tabs.Content value="config">
-				<Card.Root>
-					<Card.Header>
-						<div class="flex items-center justify-between">
-							<div>
-								<Card.Title class="flex items-center gap-2"><FileCode class="size-4" />Claude Desktop Config</Card.Title>
-								<p class="text-xs text-muted-foreground mt-1">Read-only view of <span class="font-mono">{configPath || '/config/claude_desktop_config.json'}</span></p>
-							</div>
-							<Button size="sm" onclick={handleReimport} disabled={reimporting}>
-								<RefreshCw class="size-4 mr-1 {reimporting ? 'animate-spin' : ''}" />{reimporting ? 'Importing...' : 'Re-import'}
-							</Button>
-						</div>
-					</Card.Header>
-					<Card.Content>
-						{#if configLoading}
-							<Skeleton class="h-32 w-full" />
-						{:else if configServers.length === 0}
-							<p class="text-sm text-muted-foreground text-center py-4">No config file found or no servers defined.</p>
-						{:else}
-							<Table.Root>
-								<Table.Header>
-									<Table.Row>
-										<Table.Head>Name</Table.Head>
-										<Table.Head>Transport</Table.Head>
-										<Table.Head>Command / URL</Table.Head>
-										<Table.Head>Status</Table.Head>
-									</Table.Row>
-								</Table.Header>
-								<Table.Body>
-									{#each configServers as cs}
-										{@const isDismissed = configDismissed.some(d => d.serverName === (cs.name || cs.id))}
-										<Table.Row class={isDismissed ? 'opacity-50' : ''}>
-											<Table.Cell class="font-mono text-xs">{cs.name || cs.id}</Table.Cell>
-											<Table.Cell><Badge variant="secondary" class="text-xs">{cs.transport}</Badge></Table.Cell>
-											<Table.Cell class="font-mono text-xs text-muted-foreground truncate max-w-[300px]">
-												{cs.command ? `${cs.command} ${(cs.args ?? []).join(' ')}` : cs.url ?? '-'}
-											</Table.Cell>
-											<Table.Cell>
-												{#if isDismissed}
-													<div class="flex items-center gap-1">
-														<Badge variant="outline" class="text-xs text-destructive">dismissed</Badge>
-														<Button variant="ghost" size="icon" class="size-6" onclick={() => handleUndismiss(cs.name || cs.id)} title="Restore">
-															<Undo2 class="size-3" />
-														</Button>
-													</div>
-												{:else}
-													<Badge variant="default" class="text-xs">active</Badge>
-												{/if}
-											</Table.Cell>
-										</Table.Row>
-									{/each}
-								</Table.Body>
-							</Table.Root>
-						{/if}
-					</Card.Content>
-				</Card.Root>
-
-				{#if configDismissed.length > 0}
-					<Card.Root class="mt-4">
-						<Card.Header>
-							<Card.Title class="text-sm">Dismissed Servers</Card.Title>
-							<p class="text-xs text-muted-foreground">These servers were deleted and won't be re-imported on restart. Restore them to re-enable auto-import.</p>
-						</Card.Header>
-						<Card.Content>
-							<div class="space-y-2">
-								{#each configDismissed as d}
-									<div class="flex items-center justify-between py-1.5 px-3 rounded border">
-										<span class="font-mono text-xs">{d.serverName}</span>
-										<Button variant="ghost" size="sm" onclick={() => handleUndismiss(d.serverName)}>
-											<Undo2 class="size-3 mr-1" />Restore
-										</Button>
-									</div>
-								{/each}
-							</div>
-						</Card.Content>
-					</Card.Root>
-				{/if}
 			</Tabs.Content>
 
 			{#if runtimeAvailable}

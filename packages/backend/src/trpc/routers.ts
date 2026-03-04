@@ -98,73 +98,85 @@ export const appRouter = router({
       }),
   }),
 
-  // --- Config Management ---
-  configImport: router({
-    reimport: protectedProcedure.mutation(async ({ ctx }) => {
-      const { ConfigParser } = await import('../core/config-parser.js');
-      const configPath = process.env.CLAUDE_CONFIG_PATH ?? '/config/claude_desktop_config.json';
-      const parser = new ConfigParser(configPath);
-      const servers = await parser.getMCPServers();
-
-      let imported = 0;
-      let skipped = 0;
-      let failed = 0;
-
-      for (const server of servers) {
-        try {
-          const existing = await ctx.services.serverService.getServer(
-            server.name?.toLowerCase().replace(/[^a-z0-9-_]/g, '-') ?? server.id,
-          );
-          if (existing) {
-            skipped++;
-            continue;
-          }
-          await ctx.services.serverService.createServer({
-            name: server.name || server.id,
-            transport: server.transport,
-            command: server.command,
-            args: server.args,
-            cwd: server.cwd,
-            url: server.url,
-            headers: server.headers,
-            proxyType: server.proxyType,
-            needsProxy: server.needsProxy,
-            source: 'config',
-          });
-          imported++;
-        } catch {
-          failed++;
-        }
-      }
-
-      return { imported, skipped, failed, total: servers.length };
+  // --- Config Sources ---
+  configSources: router({
+    list: protectedProcedure.query(({ ctx }) => {
+      return ctx.services.configSourcesService!.listSources();
     }),
 
-    getConfig: protectedProcedure.query(async (): Promise<{ configPath: string; servers: Array<Record<string, unknown>>; raw: unknown }> => {
-      const { ConfigParser } = await import('../core/config-parser.js');
-      const configPath = process.env.CLAUDE_CONFIG_PATH ?? '/config/claude_desktop_config.json';
-      const parser = new ConfigParser(configPath);
-      const servers = await parser.getMCPServers();
-      const raw = await parser.loadConfig();
-      return { configPath, servers: servers as unknown as Array<Record<string, unknown>>, raw };
-    }),
-
-    getDismissed: protectedProcedure.query(async ({ ctx }) => {
-      const { configDismissedServers } = await import('@mcp-platform/db');
-      const results = await ctx.db.select().from(configDismissedServers);
-      return results;
-    }),
-
-    undismiss: protectedProcedure
-      .input(z.object({ serverName: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        const { configDismissedServers, eq } = await import('@mcp-platform/db');
-        const all = await ctx.db.select().from(configDismissedServers);
-        const target = all.find((d: { serverName: string }) => d.serverName === input.serverName);
-        if (!target) return { ok: false };
-        await ctx.db.delete(configDismissedServers).where(eq(configDismissedServers.id, target.id));
-        return { ok: true };
+    get: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(({ ctx, input }) => {
+        return ctx.services.configSourcesService!.getSource(input.id);
       }),
+
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string(),
+        type: z.enum(['file', 'url']),
+        location: z.string(),
+        enabled: z.boolean().optional(),
+        priority: z.number().optional(),
+        autoSync: z.boolean().optional(),
+        syncIntervalMinutes: z.number().optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        return ctx.services.configSourcesService!.createSource(input);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.string(),
+        data: z.object({
+          name: z.string().optional(),
+          location: z.string().optional(),
+          enabled: z.boolean().optional(),
+          priority: z.number().optional(),
+          autoSync: z.boolean().optional(),
+          syncIntervalMinutes: z.number().optional(),
+        }),
+      }))
+      .mutation(({ ctx, input }) => {
+        return ctx.services.configSourcesService!.updateSource(input.id, input.data);
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => {
+        return ctx.services.configSourcesService!.deleteSource(input.id);
+      }),
+
+    sync: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => {
+        return ctx.services.configSourcesService!.syncSource(input.id);
+      }),
+
+    syncAll: protectedProcedure.mutation(({ ctx }) => {
+      return ctx.services.configSourcesService!.syncAll();
+    }),
+
+    toggleServer: protectedProcedure
+      .input(z.object({ sourceServerId: z.string(), enabled: z.boolean() }))
+      .mutation(({ ctx, input }) => {
+        return ctx.services.configSourcesService!.toggleServer(input.sourceServerId, input.enabled);
+      }),
+
+    toggleSource: protectedProcedure
+      .input(z.object({ id: z.string(), enabled: z.boolean() }))
+      .mutation(({ ctx, input }) => {
+        return ctx.services.configSourcesService!.toggleSource(input.id, input.enabled);
+      }),
+
+    reorder: protectedProcedure
+      .input(z.object({ orderedIds: z.array(z.string()) }))
+      .mutation(({ ctx, input }) => {
+        return ctx.services.configSourcesService!.reorderSources(input.orderedIds);
+      }),
+
+    migrateFromLegacy: protectedProcedure.mutation(({ ctx }) => {
+      return ctx.services.configSourcesService!.migrateFromLegacy();
+    }),
   }),
 
   // --- Namespaces ---

@@ -69,6 +69,18 @@ export class ConfigParser {
     this.parsedConfig = null;
   }
 
+  static parseConfigJSON(json: unknown): ParsedMCPServer[] {
+    const config = json as ClaudeDesktopConfig;
+    if (!config?.mcpServers) return [];
+    const parser = new ConfigParser();
+    const servers: ParsedMCPServer[] = [];
+    for (const [name, rawConfig] of Object.entries(config.mcpServers)) {
+      const server = parser.parseMCPServer(name, rawConfig);
+      if (server) servers.push(server);
+    }
+    return servers;
+  }
+
   async loadConfig(): Promise<ClaudeDesktopConfig | null> {
     try {
       if (!fs.existsSync(this.configPath)) {
