@@ -699,6 +699,49 @@ export const appRouter = router({
     }),
   }),
 
+  // --- Alerts ---
+  alerts: router({
+    active: protectedProcedure.query(async ({ ctx }) => {
+      const svc = ctx.services.alertService;
+      if (!svc) return [];
+      return svc.getActiveAlerts();
+    }),
+
+    recent: protectedProcedure
+      .input(z.object({ hours: z.number().optional(), limit: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const svc = ctx.services.alertService;
+        if (!svc) return [];
+        return svc.getRecentAlerts(input?.hours ?? 24, input?.limit ?? 100);
+      }),
+
+    forServer: protectedProcedure
+      .input(z.object({ serverId: z.string(), limit: z.number().optional() }))
+      .query(async ({ ctx, input }) => {
+        const svc = ctx.services.alertService;
+        if (!svc) return [];
+        return svc.getAlertsForServer(input.serverId, input.limit ?? 50);
+      }),
+
+    resolve: protectedProcedure
+      .input(z.object({ alertId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.alertService;
+        if (!svc) throw new Error('Alert service not available');
+        await svc.resolveAlert(input.alertId);
+        return { ok: true };
+      }),
+
+    resolveAll: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const svc = ctx.services.alertService;
+        if (!svc) throw new Error('Alert service not available');
+        await svc.resolveAlertsForServer(input.serverId);
+        return { ok: true };
+      }),
+  }),
+
   // --- Runtime Mode ---
   runtimeMode: router({
     getMode: protectedProcedure.query(({ ctx }) => {

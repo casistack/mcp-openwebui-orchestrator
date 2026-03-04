@@ -6,11 +6,12 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { HeartPulse, RefreshCw, Server, AlertCircle } from '@lucide/svelte';
+	import { HeartPulse, RefreshCw, Server, AlertCircle, AlertTriangle, Bell, Check } from '@lucide/svelte';
 
 	interface Connection { serverId: string; status: string; toolCount: number; lastPingMs: number | null; lastError: string | null; }
 	interface HealthStats { serverId: string; totalChecks: number; healthyChecks: number; uptimePercent: number; avgResponseTime: number | null; maxResponseTime: number | null; minResponseTime: number | null; }
 	interface HealthRecord { healthy: boolean; responseTime: number | null; checkedAt: string; error: string | null; }
+	interface HealthAlert { id: string; serverId: string; alertType: string; severity: string; message: string; remediation: string | null; resolvedAt: string | null; createdAt: string; }
 
 	let connections = $state<Connection[]>([]);
 	let healthStats = $state<HealthStats[]>([]);
@@ -19,6 +20,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let refreshing = $state(false);
+	let activeAlerts = $state<HealthAlert[]>([]);
 	let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
 	onMount(async () => {
@@ -30,10 +32,12 @@
 
 	async function loadAll() {
 		try {
-			const [conns, stats] = await Promise.all([
+			const [conns, stats, alerts] = await Promise.all([
 				trpc.connections.list.query().catch(() => []),
 				trpc.health.allStats.query().catch(() => []),
+				trpc.alerts.active.query().catch(() => []),
 			]);
+			activeAlerts = alerts as HealthAlert[];
 			connections = conns as Connection[];
 			healthStats = stats as HealthStats[];
 			if (!selectedServer && connections.length > 0) await selectServer(connections[0].serverId);
@@ -75,6 +79,19 @@
 	function healthDots(data: HealthRecord[], width: number): Array<{ x: number; healthy: boolean }> {
 		if (data.length === 0) return [];
 		return data.map((d, i) => ({ x: 5 + (i / Math.max(data.length - 1, 1)) * (width - 10), healthy: d.healthy }));
+	}
+
+	async function resolveAlert(alertId: string) {
+		try {
+			await trpc.alerts.resolve.mutate({ alertId });
+			activeAlerts = activeAlerts.filter(a => a.id !== alertId);
+		} catch { /* ignore */ }
+	}
+
+	function severityVariant(severity: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+		if (severity === 'critical' || severity === 'high') return 'destructive';
+		if (severity === 'medium') return 'secondary';
+		return 'outline';
 	}
 
 	function summaryStats() {
@@ -126,6 +143,44 @@
 				<Card.Content><div class="text-2xl font-bold {summary.unhealthy > 0 ? 'text-destructive' : ''}">{summary.unhealthy}</div></Card.Content>
 			</Card.Root>
 		</div>
+
+		{#if activeAlerts.length > 0}
+			<Card.Root class="mb-6 border-destructive/50">
+				<Card.Header class="pb-2">
+					<div class="flex items-center justify-between">
+						<div class="flex items-center gap-2">
+							<Bell class="size-4 text-destructive" />
+							<Card.Title class="text-sm">Active Alerts ({activeAlerts.length})</Card.Title>
+						</div>
+					</div>
+				</Card.Header>
+				<Card.Content class="space-y-2">
+					{#each activeAlerts.slice(0, 10) as alert}
+						<div class="flex items-center justify-between py-2 px-3 rounded border text-sm">
+							<div class="flex items-center gap-2 min-w-0">
+								{#if alert.severity === 'critical' || alert.severity === 'high'}
+									<AlertTriangle class="size-4 text-destructive shrink-0" />
+								{:else}
+									<AlertCircle class="size-4 text-muted-foreground shrink-0" />
+								{/if}
+								<Badge variant={severityVariant(alert.severity)} class="text-xs shrink-0">{alert.severity}</Badge>
+								<span class="font-mono text-xs text-muted-foreground shrink-0">{alert.serverId}</span>
+								<span class="text-xs truncate">{alert.message}</span>
+								{#if alert.remediation}
+									<Badge variant="outline" class="text-xs shrink-0">{alert.remediation}</Badge>
+								{/if}
+							</div>
+							<Button variant="ghost" size="icon" class="shrink-0 size-7" title="Resolve" onclick={() => resolveAlert(alert.id)}>
+								<Check class="size-3" />
+							</Button>
+						</div>
+					{/each}
+					{#if activeAlerts.length > 10}
+						<p class="text-xs text-muted-foreground text-center">+ {activeAlerts.length - 10} more alerts</p>
+					{/if}
+				</Card.Content>
+			</Card.Root>
+		{/if}
 
 		{#if connections.length > 0}
 			<h3 class="text-lg font-semibold mb-3">Per-Server Health</h3>

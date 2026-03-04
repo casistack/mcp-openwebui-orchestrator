@@ -57,6 +57,13 @@
       "when": 1773097200000,
       "tag": "0007_runtime_modes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1773183600000,
+      "tag": "0008_health_alerts",
+      "breakpoints": true
     }
   ]
 }

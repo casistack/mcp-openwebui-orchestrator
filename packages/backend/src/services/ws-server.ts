@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
+import type { EventEmitter } from 'events';
 import type { ConnectionManager } from './connection-manager.js';
 
 export interface WSEvent {
@@ -19,7 +20,6 @@ export class WSBroadcaster {
     this.wss = new WebSocketServer({ server, path: '/ws' });
 
     this.wss.on('connection', (ws) => {
-      // Send a welcome event so client knows it's connected
       ws.send(JSON.stringify({
         type: 'connected',
         data: { message: 'Connected to MCP Platform' },
@@ -28,9 +28,6 @@ export class WSBroadcaster {
     });
   }
 
-  /**
-   * Wire up ConnectionManager events to broadcast to all connected clients.
-   */
   wireConnectionManager(cm: ConnectionManager): void {
     const events = [
       'server:connected',
@@ -52,8 +49,43 @@ export class WSBroadcaster {
   }
 
   /**
-   * Broadcast an event to all connected WebSocket clients.
+   * Wire runtime service events (process started/stopped/crashed/error).
    */
+  wireRuntimeEvents(emitter: EventEmitter): void {
+    const runtimeEvents = [
+      'process:started',
+      'process:stopped',
+      'process:crashed',
+      'process:error',
+      'unified:started',
+      'unified:stopped',
+      'unified:crashed',
+      'unified:error',
+      'transport:started',
+      'transport:stopped',
+      'mode:switched',
+    ];
+
+    for (const event of runtimeEvents) {
+      emitter.on(event, (data: Record<string, unknown>) => {
+        this.broadcast({ type: event, data, timestamp: new Date().toISOString() });
+      });
+    }
+  }
+
+  /**
+   * Wire alert service events (alert created).
+   */
+  wireAlertService(emitter: EventEmitter): void {
+    emitter.on('alert:created', (alert: Record<string, unknown>) => {
+      this.broadcast({
+        type: 'alert:created',
+        data: alert,
+        timestamp: new Date().toISOString(),
+      });
+    });
+  }
+
   broadcast(event: WSEvent): void {
     if (!this.wss) return;
 
@@ -65,9 +97,6 @@ export class WSBroadcaster {
     }
   }
 
-  /**
-   * Get the count of connected WebSocket clients.
-   */
   get clientCount(): number {
     return this.wss?.clients.size ?? 0;
   }

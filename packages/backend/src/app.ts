@@ -33,6 +33,7 @@ import { MarketplaceService } from './services/marketplace-service.js';
 import { MiddlewarePipeline } from './services/middleware-pipeline.js';
 import { ToolPermissionService } from './services/tool-permission-service.js';
 import { OAuthTokenService } from './services/oauth-token-service.js';
+import { AlertService } from './services/alert-service.js';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/routers.js';
 import { createTRPCContext } from './trpc/index.js';
@@ -78,10 +79,12 @@ export async function createApp(config: AppConfig = {}): Promise<{
   const middlewarePipeline = new MiddlewarePipeline(db);
   const toolPermissionService = new ToolPermissionService(db);
   const oauthTokenService = new OAuthTokenService(db);
+  const alertService = new AlertService(db, healthService);
   const wsBroadcaster = new WSBroadcaster();
   const connectionManager = new ConnectionManager(serverService, toolConfigService);
   connectionManager.setHealthService(healthService);
   wsBroadcaster.wireConnectionManager(connectionManager);
+  wsBroadcaster.wireAlertService(alertService);
 
   // Server runtime services (spawns and manages MCPO/MCP-Bridge processes)
   const runtimeEnabled = process.env.ENABLE_SERVER_RUNTIME !== 'false';
@@ -177,6 +180,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
         middlewarePipeline,
         toolPermissionService,
         oauthTokenService,
+        alertService,
       }, db),
     }),
   );
@@ -210,6 +214,10 @@ export async function createApp(config: AppConfig = {}): Promise<{
 
   // Load middleware pipelines from DB into memory
   middlewarePipeline.loadAllPipelines().catch(() => { /* non-critical */ });
+
+  // Wire runtime events to WebSocket broadcaster
+  if (serverRuntimeService) wsBroadcaster.wireRuntimeEvents(serverRuntimeService);
+  if (runtimeModeManager) wsBroadcaster.wireRuntimeEvents(runtimeModeManager);
 
   // Initialize runtime mode manager and auto-start servers
   if (runtimeModeManager) {

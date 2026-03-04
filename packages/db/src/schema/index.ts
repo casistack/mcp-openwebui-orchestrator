@@ -12,3 +12,4 @@ export * from './middleware';
 export * from './tool-permissions';
 export * from './oauth-tokens';
 export * from './runtime-config';
+export * from './health-alerts';
