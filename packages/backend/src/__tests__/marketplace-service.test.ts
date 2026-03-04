@@ -6,6 +6,9 @@ function createMockDb() {
     marketplace_listings: [],
     marketplace_reviews: [],
     marketplace_installs: [],
+    marketplace_collections: [],
+    marketplace_collection_items: [],
+    marketplace_review_responses: [],
     mcp_servers: [],
   };
 
@@ -179,6 +182,56 @@ describe('MarketplaceService', () => {
     it('should return false for nonexistent install', async () => {
       const result = await service.uninstallListing('nonexistent');
       expect(result).toBe(false);
+    });
+  });
+
+  describe('listCollections', () => {
+    it('should return empty array when no collections', async () => {
+      const result = await service.listCollections();
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('createCollection', () => {
+    it('should create a collection with required fields', async () => {
+      const result = await service.createCollection('user-1', 'Best AI Tools', 'best-ai-tools');
+
+      expect(result.name).toBe('Best AI Tools');
+      expect(result.slug).toBe('best-ai-tools');
+      expect(result.curatorId).toBe('user-1');
+      expect(result.id).toBeDefined();
+    });
+
+    it('should create a collection with optional description', async () => {
+      const result = await service.createCollection('user-1', 'AI Collection', 'ai-collection', 'Top AI servers');
+
+      expect(result.description).toBe('Top AI servers');
+    });
+  });
+
+  describe('getCollectionItems', () => {
+    it('should return empty array when no items', async () => {
+      const result = await service.getCollectionItems('col-1');
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getReviewResponses', () => {
+    it('should return empty array when no responses', async () => {
+      const result = await service.getReviewResponses('review-1');
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getPublisherAnalytics', () => {
+    it('should return zero totals when no listings', async () => {
+      const result = await service.getPublisherAnalytics('user-1');
+
+      expect(result.totalListings).toBe(0);
+      expect(result.totalInstalls).toBe(0);
+      expect(result.avgRating).toBe(0);
+      expect(result.totalReviews).toBe(0);
+      expect(result.listings).toEqual([]);
     });
   });
 });

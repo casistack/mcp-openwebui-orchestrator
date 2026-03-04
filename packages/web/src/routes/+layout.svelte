@@ -11,7 +11,8 @@
 	import {
 		LayoutDashboard, HeartPulse, Server, Layers, Globe,
 		Search, Lightbulb, KeyRound, ClipboardList, Settings,
-		Sun, Moon, Command, Store, Plus, Filter, Shield, Lock
+		Sun, Moon, Command, Store, Plus, Filter, Shield, Lock,
+		FolderOpen, BarChart3, Activity
 	} from '@lucide/svelte';
 
 	let authChecked = $state(false);
@@ -61,6 +62,8 @@
 			items: [
 				{ href: '/marketplace', label: 'Browse', icon: Store },
 				{ href: '/marketplace/publish', label: 'Publish', icon: Plus },
+				{ href: '/marketplace/collections', label: 'Collections', icon: FolderOpen },
+				{ href: '/marketplace/analytics', label: 'Analytics', icon: BarChart3 },
 			],
 		},
 		{
@@ -82,6 +85,7 @@
 		{
 			label: 'System',
 			items: [
+				{ href: '/system', label: 'Metrics', icon: Activity },
 				{ href: '/settings', label: 'Settings', icon: Settings },
 			],
 		},

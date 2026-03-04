@@ -34,6 +34,8 @@ import { MiddlewarePipeline } from './services/middleware-pipeline.js';
 import { ToolPermissionService } from './services/tool-permission-service.js';
 import { OAuthTokenService } from './services/oauth-token-service.js';
 import { AlertService } from './services/alert-service.js';
+import { SystemMetricsService } from './services/system-metrics-service.js';
+import { LogRotationService } from './services/log-rotation-service.js';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/routers.js';
 import { createTRPCContext } from './trpc/index.js';
@@ -222,9 +224,28 @@ export async function createApp(config: AppConfig = {}): Promise<{
   // OpenAPI spec and interactive docs
   app.use('/api', createOpenAPIRouter());
 
+  // System metrics and log rotation
+  const systemMetrics = new SystemMetricsService(db, connectionManager, serverRuntimeService);
+  const logRotation = new LogRotationService(db, {
+    healthRecordsDays: parseInt(process.env.RETENTION_HEALTH_DAYS ?? '30', 10),
+    runtimeLogsDays: parseInt(process.env.RETENTION_RUNTIME_DAYS ?? '14', 10),
+    auditLogsDays: parseInt(process.env.RETENTION_AUDIT_DAYS ?? '90', 10),
+  });
+  logRotation.start();
+
   // Auth check endpoint
   app.get('/api/auth/ok', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // System metrics endpoint (for monitoring)
+  app.get('/api/system/metrics', async (_req, res) => {
+    try {
+      const metrics = await systemMetrics.getMetrics();
+      res.json(metrics);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to collect metrics' });
+    }
   });
 
   // Serve SvelteKit frontend in production via adapter-node handler

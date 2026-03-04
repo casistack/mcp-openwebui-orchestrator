@@ -691,6 +691,99 @@ export const appRouter = router({
       if (!ms) return [];
       return ms.getFeatured();
     }),
+
+    // --- Collections ---
+    listCollections: protectedProcedure
+      .input(z.object({ curatorId: z.string().optional(), featured: z.boolean().optional() }).optional())
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return [];
+        return ms.listCollections(input);
+      }),
+
+    getCollection: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return null;
+        return ms.getCollection(input.id);
+      }),
+
+    getCollectionBySlug: protectedProcedure
+      .input(z.object({ slug: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return null;
+        return ms.getCollectionBySlug(input.slug);
+      }),
+
+    collectionItems: protectedProcedure
+      .input(z.object({ collectionId: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return [];
+        return ms.getCollectionItems(input.collectionId);
+      }),
+
+    createCollection: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        slug: z.string().min(1).regex(/^[a-z0-9-]+$/),
+        description: z.string().optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.createCollection(ctx.user.id, input.name, input.slug, input.description);
+      }),
+
+    deleteCollection: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.deleteCollection(input.id);
+      }),
+
+    addToCollection: protectedProcedure
+      .input(z.object({ collectionId: z.string(), listingId: z.string(), note: z.string().optional() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.addToCollection(input.collectionId, input.listingId, input.note);
+      }),
+
+    removeFromCollection: protectedProcedure
+      .input(z.object({ collectionId: z.string(), listingId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.removeFromCollection(input.collectionId, input.listingId);
+      }),
+
+    // --- Review Responses ---
+    reviewResponses: protectedProcedure
+      .input(z.object({ reviewId: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return [];
+        return ms.getReviewResponses(input.reviewId);
+      }),
+
+    respondToReview: protectedProcedure
+      .input(z.object({ reviewId: z.string(), body: z.string().min(1) }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.respondToReview(input.reviewId, ctx.user.id, input.body);
+      }),
+
+    // --- Publisher Analytics ---
+    publisherAnalytics: protectedProcedure.query(({ ctx }) => {
+      const ms = ctx.services.marketplaceService;
+      if (!ms) return { totalListings: 0, totalInstalls: 0, avgRating: 0, totalReviews: 0, listings: [] };
+      return ms.getPublisherAnalytics(ctx.user.id);
+    }),
   }),
 
   // --- Runtime ---

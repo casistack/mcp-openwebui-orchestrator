@@ -1,5 +1,8 @@
 import crypto from 'crypto';
-import { marketplaceListings, marketplaceReviews, marketplaceInstalls, mcpServers } from '@mcp-platform/db';
+import {
+  marketplaceListings, marketplaceReviews, marketplaceInstalls, mcpServers,
+  marketplaceCollections, marketplaceCollectionItems, marketplaceReviewResponses,
+} from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 export const MARKETPLACE_CATEGORIES = [
@@ -334,6 +337,142 @@ export class MarketplaceService {
 
   async getFeatured(limit = 6) {
     return this.listListings({ status: 'approved', featured: true });
+  }
+
+  // --- Collections ---
+
+  async listCollections(opts?: { curatorId?: string; featured?: boolean }) {
+    let results = await this.db.select().from(marketplaceCollections);
+    if (opts?.curatorId) results = results.filter(c => c.curatorId === opts.curatorId);
+    if (opts?.featured) results = results.filter(c => c.isFeatured);
+    return results.filter(c => c.isPublic);
+  }
+
+  async getCollection(id: string) {
+    const results = await this.db.select().from(marketplaceCollections);
+    return results.find(c => c.id === id) ?? null;
+  }
+
+  async getCollectionBySlug(slug: string) {
+    const results = await this.db.select().from(marketplaceCollections);
+    return results.find(c => c.slug === slug) ?? null;
+  }
+
+  async createCollection(curatorId: string, name: string, slug: string, description?: string) {
+    const existing = await this.getCollectionBySlug(slug);
+    if (existing) throw new Error(`Collection slug "${slug}" is already taken`);
+
+    const id = crypto.randomUUID();
+    const now = new Date();
+    const collection = { id, curatorId, name, slug, description: description ?? null, isPublic: true, isFeatured: false, createdAt: now, updatedAt: now };
+    await this.db.insert(marketplaceCollections).values(collection);
+    return collection;
+  }
+
+  async deleteCollection(id: string) {
+    const existing = await this.getCollection(id);
+    if (!existing) return false;
+    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
+      .run?.(`DELETE FROM marketplace_collections WHERE id = ?`, id);
+    return true;
+  }
+
+  async getCollectionItems(collectionId: string) {
+    const items = await this.db.select().from(marketplaceCollectionItems);
+    const filtered = items.filter(i => i.collectionId === collectionId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    const listings = await this.db.select().from(marketplaceListings);
+    const listingMap = new Map(listings.map(l => [l.id, l]));
+
+    return filtered.map(item => ({
+      ...item,
+      listing: listingMap.get(item.listingId) ?? null,
+    }));
+  }
+
+  async addToCollection(collectionId: string, listingId: string, note?: string) {
+    const items = await this.db.select().from(marketplaceCollectionItems);
+    const existing = items.find(i => i.collectionId === collectionId && i.listingId === listingId);
+    if (existing) return existing;
+
+    const maxOrder = items.filter(i => i.collectionId === collectionId).reduce((max, i) => Math.max(max, i.order ?? 0), -1);
+    const id = crypto.randomUUID();
+    const item = { id, collectionId, listingId, note: note ?? null, order: maxOrder + 1 };
+    await this.db.insert(marketplaceCollectionItems).values(item);
+    return item;
+  }
+
+  async removeFromCollection(collectionId: string, listingId: string) {
+    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
+      .run?.(`DELETE FROM marketplace_collection_items WHERE collection_id = ? AND listing_id = ?`, collectionId, listingId);
+    return true;
+  }
+
+  // --- Review Responses ---
+
+  async getReviewResponses(reviewId: string) {
+    const results = await this.db.select().from(marketplaceReviewResponses);
+    return results.filter(r => r.reviewId === reviewId);
+  }
+
+  async respondToReview(reviewId: string, publisherId: string, body: string) {
+    const id = crypto.randomUUID();
+    const now = new Date();
+    const response = { id, reviewId, publisherId, body, createdAt: now, updatedAt: now };
+    await this.db.insert(marketplaceReviewResponses).values(response);
+    return response;
+  }
+
+  // --- Publisher Analytics ---
+
+  async getPublisherAnalytics(publisherId: string) {
+    const listings = await this.db.select().from(marketplaceListings);
+    const myListings = listings.filter(l => l.publisherId === publisherId);
+
+    if (myListings.length === 0) {
+      return { totalListings: 0, totalInstalls: 0, avgRating: 0, totalReviews: 0, listings: [] };
+    }
+
+    const listingIds = new Set(myListings.map(l => l.id));
+
+    const allInstalls = await this.db.select().from(marketplaceInstalls);
+    const myInstalls = allInstalls.filter(i => listingIds.has(i.listingId));
+
+    const allReviews = await this.db.select().from(marketplaceReviews);
+    const myReviews = allReviews.filter(r => listingIds.has(r.listingId));
+
+    const totalInstalls = myListings.reduce((sum, l) => sum + (l.installCount ?? 0), 0);
+    const totalReviews = myReviews.length;
+    const avgRating = myReviews.length > 0
+      ? Math.round((myReviews.reduce((sum, r) => sum + r.rating, 0) / myReviews.length) * 10) / 10
+      : 0;
+
+    // Per-listing breakdown
+    const listingAnalytics = myListings.map(l => {
+      const lReviews = myReviews.filter(r => r.listingId === l.id);
+      const lInstalls = myInstalls.filter(i => i.listingId === l.id);
+
+      // Recent installs (last 7 days)
+      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const recentInstalls = lInstalls.filter(i => {
+        const ts = i.installedAt instanceof Date ? i.installedAt.getTime() : (typeof i.installedAt === 'number' ? i.installedAt * 1000 : 0);
+        return ts > weekAgo;
+      }).length;
+
+      return {
+        id: l.id,
+        name: l.name,
+        slug: l.slug,
+        installCount: l.installCount ?? 0,
+        recentInstalls,
+        avgRating: l.avgRating ?? 0,
+        ratingCount: l.ratingCount ?? 0,
+        reviewCount: lReviews.length,
+        status: l.status,
+      };
+    }).sort((a, b) => b.installCount - a.installCount);
+
+    return { totalListings: myListings.length, totalInstalls, avgRating, totalReviews, listings: listingAnalytics };
   }
 
   private camelToSnake(str: string): string {

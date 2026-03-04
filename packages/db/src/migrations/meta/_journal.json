@@ -64,6 +64,13 @@
       "when": 1773183600000,
       "tag": "0008_health_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1773270000000,
+      "tag": "0009_marketplace_phase2",
+      "breakpoints": true
     }
   ]
 }
