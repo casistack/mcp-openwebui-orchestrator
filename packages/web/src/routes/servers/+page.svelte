@@ -31,6 +31,7 @@
 	let logs = $state<LogEntry[]>([]);
 	let logsLoading = $state(false);
 	let actionLoading = $state<Record<string, boolean>>({});
+	let bulkActionLoading = $state(false);
 	let error = $state<string | null>(null);
 	let form = $state({ name: '', transport: 'stdio' as 'stdio' | 'sse' | 'streamable-http', command: '', args: '', url: '', proxyType: 'mcpo', needsProxy: true });
 
@@ -170,6 +171,25 @@
 		logsLoading = false;
 	}
 
+	async function handleStartAll() {
+		bulkActionLoading = true;
+		try {
+			const result = await trpc.runtime.startAll.mutate() as { started: number; failed: number };
+			if (result.failed > 0) error = `Started ${result.started}, failed ${result.failed}`;
+			await loadRuntimeStatus();
+		} catch (e: unknown) { error = e instanceof Error ? e.message : 'Failed to start all'; }
+		bulkActionLoading = false;
+	}
+
+	async function handleStopAll() {
+		bulkActionLoading = true;
+		try {
+			await trpc.runtime.stopAll.mutate();
+			await loadRuntimeStatus();
+		} catch (e: unknown) { error = e instanceof Error ? e.message : 'Failed to stop all'; }
+		bulkActionLoading = false;
+	}
+
 	function getConnection(id: string) { return connections.find(c => c.serverId === id); }
 	function connectionStatus(server: ServerItem): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
 		const conn = getConnection(server.id);
@@ -206,6 +226,14 @@
 					<Trash2 class="size-4 mr-1" />Delete {selected.size} selected
 				</Button>
 				<Button variant="outline" size="sm" onclick={() => selected = new Set()}>Clear</Button>
+			{/if}
+			{#if runtimeEnabled && servers.length > 0}
+				<Button variant="outline" size="sm" onclick={handleStartAll} disabled={bulkActionLoading}>
+					<Play class="size-4 mr-1" />Start All
+				</Button>
+				<Button variant="outline" size="sm" onclick={handleStopAll} disabled={bulkActionLoading}>
+					<Square class="size-4 mr-1" />Stop All
+				</Button>
 			{/if}
 			<Button onclick={openAdd}><Plus class="size-4 mr-2" />Add Server</Button>
 		</div>

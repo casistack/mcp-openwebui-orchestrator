@@ -33,6 +33,7 @@ export const mcpServers = sqliteTable('mcp_servers', {
   runtimeRestartCount: integer('runtime_restart_count').default(0),
   runtimeLastError: text('runtime_last_error'),
   runtimeMode: text('runtime_mode').default('individual'),
+  autoStart: integer('auto_start', { mode: 'boolean' }).default(true),
   // Ownership
   createdBy: text('created_by').references(() => users.id),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),

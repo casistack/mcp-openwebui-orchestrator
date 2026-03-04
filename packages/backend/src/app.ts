@@ -196,9 +196,14 @@ export async function createApp(config: AppConfig = {}): Promise<{
   // Load middleware pipelines from DB into memory
   middlewarePipeline.loadAllPipelines().catch(() => { /* non-critical */ });
 
-  // Start runtime health monitoring if enabled
+  // Start runtime health monitoring and auto-start servers if enabled
   if (serverRuntimeService) {
     serverRuntimeService.startHealthMonitoring();
+    serverRuntimeService.startAll().then(({ started, failed }) => {
+      if (started > 0 || failed > 0) {
+        console.log(`Server runtime auto-start: ${started} started, ${failed} failed`);
+      }
+    }).catch(() => { /* non-critical */ });
   }
 
   return { app, db, auth, serverService, rbacService, connectionManager, wsBroadcaster, healthService, serverRuntimeService };

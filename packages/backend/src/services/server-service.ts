@@ -146,7 +146,10 @@ export class ServerService {
 
   async deleteEnvVar(serverId: string, key: string) {
     const envVars = await this.getEnvVars(serverId);
-    return envVars.some(e => e.key === key);
+    const target = envVars.find(e => e.key === key);
+    if (!target) return false;
+    await this.db.delete(serverEnvVars).where(eq(serverEnvVars.id, target.id));
+    return true;
   }
 
   async getServerCount() {

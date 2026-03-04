@@ -672,6 +672,19 @@ export const appRouter = router({
       };
     }),
 
+    startAll: protectedProcedure.mutation(async ({ ctx }) => {
+      const srs = ctx.services.serverRuntimeService;
+      if (!srs) throw new Error('Server runtime service not enabled');
+      return srs.startAll();
+    }),
+
+    stopAll: protectedProcedure.mutation(async ({ ctx }) => {
+      const srs = ctx.services.serverRuntimeService;
+      if (!srs) throw new Error('Server runtime service not enabled');
+      await srs.stopAll();
+      return { ok: true };
+    }),
+
     enabled: protectedProcedure.query(({ ctx }) => {
       return { enabled: ctx.services.serverRuntimeService != null };
     }),

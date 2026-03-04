@@ -9,6 +9,7 @@ import type { SecretsService } from './secrets-service.js';
 import { PortManager } from './port-manager.js';
 import type { AppDatabase } from '@mcp-platform/db';
 import { serverRuntimeLogs, mcpServers, eq } from '@mcp-platform/db';
+import { secureLogger } from '../core/secure-logger.js';
 
 const ALLOWED_COMMANDS = new Set(['npx', 'uvx', 'uv', 'python', 'node', 'docker']);
 
@@ -319,7 +320,16 @@ export class ServerRuntimeService extends EventEmitter {
     let failed = 0;
 
     for (const server of servers) {
-      if (server.transport === 'stdio' && server.command) {
+      // Respect autoStart flag (default true for servers without the column)
+      const autoStart = (server as Record<string, unknown>).autoStart ?? true;
+      if (!autoStart) continue;
+
+      // Start stdio servers with commands, and URL-based servers with urls
+      const canStart =
+        (server.transport === 'stdio' && server.command) ||
+        ((server.transport === 'sse' || server.transport === 'streamable-http') && server.url);
+
+      if (canStart) {
         try {
           await this.startServer(server.id);
           started++;
@@ -539,11 +549,13 @@ export class ServerRuntimeService extends EventEmitter {
 
   private persistLog(serverId: string, stream: string, message: string): void {
     try {
+      // Mask sensitive data (API keys, tokens, passwords) before persisting
+      const maskedMessage = secureLogger.maskSensitiveString(message);
       this.db.insert(serverRuntimeLogs).values({
         id: crypto.randomUUID(),
         serverId,
         stream,
-        message,
+        message: maskedMessage,
       }).run();
     } catch {
       // Non-critical — log persistence failure shouldn't crash the service
