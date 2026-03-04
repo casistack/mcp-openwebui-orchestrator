@@ -672,6 +672,15 @@ export const appRouter = router({
       };
     }),
 
+    resetFallback: protectedProcedure
+      .input(z.object({ serverId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const srs = ctx.services.serverRuntimeService;
+        if (!srs) throw new Error('Server runtime service not enabled');
+        srs.resetFallbackAttempts(input.serverId);
+        return { ok: true };
+      }),
+
     startAll: protectedProcedure.mutation(async ({ ctx }) => {
       const srs = ctx.services.serverRuntimeService;
       if (!srs) throw new Error('Server runtime service not enabled');

@@ -10,6 +10,7 @@ import { PortManager } from './port-manager.js';
 import type { AppDatabase } from '@mcp-platform/db';
 import { serverRuntimeLogs, mcpServers, eq } from '@mcp-platform/db';
 import { secureLogger } from '../core/secure-logger.js';
+import { classifyError, isInformationalMessage, type ClassifiedError } from '../core/error-classifier.js';
 
 const ALLOWED_COMMANDS = new Set(['npx', 'uvx', 'uv', 'python', 'node', 'docker']);
 
@@ -18,16 +19,22 @@ const HEALTH_CHECK_TIMEOUT_MS = 5_000;
 const STOP_GRACE_PERIOD_MS = 3_000;
 const STARTUP_WAIT_MS = 8_000;
 const STARTUP_WAIT_SSE_MS = 15_000;
+const CONSECUTIVE_FAILURE_RESTART_THRESHOLD = 5;
+const FALLBACK_RESET_MS = 30 * 60_000; // 30 minutes
 
 interface ManagedProcess {
   process: ChildProcess;
   serverId: string;
   port: number;
   proxyType: string;
+  fallbackUsed: boolean;
   startedAt: Date;
   restartCount: number;
   healthy: boolean;
+  authError: boolean;
+  consecutiveFailures: number;
   lastError: string | null;
+  lastErrorCategory: string | null;
   logBuffer: string[];
 }
 
@@ -37,10 +44,13 @@ export interface RuntimeStatus {
   pid: number | null;
   port: number | null;
   proxyType: string | null;
+  fallbackUsed: boolean;
   startedAt: Date | null;
   restartCount: number;
   healthy: boolean;
+  authError: boolean;
   lastError: string | null;
+  lastErrorCategory: string | null;
 }
 
 export interface RuntimeConfig {
@@ -50,8 +60,15 @@ export interface RuntimeConfig {
   healthCheckIntervalMs: number;
 }
 
+interface FallbackTracking {
+  attempts: Set<string>;
+  lastAttempt: number;
+  totalAttempts: number;
+}
+
 export class ServerRuntimeService extends EventEmitter {
   private processes = new Map<string, ManagedProcess>();
+  private fallbackAttempts = new Map<string, FallbackTracking>();
   private healthInterval: ReturnType<typeof setInterval> | null = null;
   private portManager: PortManager;
   private config: RuntimeConfig;
@@ -105,53 +122,105 @@ export class ServerRuntimeService extends EventEmitter {
       runtimePort: port,
     });
 
-    const proxyType = server.proxyType ?? this.config.defaultProxyType;
+    // Determine proxy type order with fallback
+    const explicitType = server.proxyType;
+    const primaryType = explicitType ?? this.config.defaultProxyType;
+    const alternateType = primaryType === 'mcpo' ? 'mcp-bridge' : 'mcpo';
+    const canFallback = !explicitType && this.config.allowFallback && this.canAttemptFallback(serverId);
+    const tryOrder = canFallback ? [primaryType, alternateType] : [primaryType];
 
-    try {
-      const proc = await this.spawnProxy(server, port, proxyType);
-      const managed: ManagedProcess = {
-        process: proc,
-        serverId,
-        port,
-        proxyType,
-        startedAt: new Date(),
-        restartCount: 0,
-        healthy: false,
-        lastError: null,
-        logBuffer: [],
-      };
-      this.processes.set(serverId, managed);
-      this.setupProcessHandlers(serverId, proc, managed);
+    let lastErr: Error | null = null;
 
-      // Wait for startup
-      const waitMs = server.transport === 'stdio' ? STARTUP_WAIT_MS : STARTUP_WAIT_SSE_MS;
-      await new Promise(resolve => setTimeout(resolve, waitMs));
+    for (const proxyType of tryOrder) {
+      this.trackFallbackAttempt(serverId, proxyType);
 
-      // Initial health check
-      managed.healthy = await this.checkProcessHealth(port);
+      try {
+        const proc = await this.spawnProxy(server, port, proxyType);
+        const managed: ManagedProcess = {
+          process: proc,
+          serverId,
+          port,
+          proxyType,
+          fallbackUsed: proxyType !== primaryType,
+          startedAt: new Date(),
+          restartCount: 0,
+          healthy: false,
+          authError: false,
+          consecutiveFailures: 0,
+          lastError: null,
+          lastErrorCategory: null,
+          logBuffer: [],
+        };
+        this.processes.set(serverId, managed);
+        this.setupProcessHandlers(serverId, proc, managed);
 
-      await this.updateRuntimeState(serverId, {
-        runtimeStatus: 'running',
-        runtimePid: proc.pid ?? null,
-        runtimePort: port,
-        runtimeProxyTypeUsed: proxyType,
-        runtimeStartedAt: new Date(),
-        runtimeRestartCount: 0,
-        runtimeLastError: null,
-      });
+        // Wait for startup
+        const waitMs = server.transport === 'stdio' ? STARTUP_WAIT_MS : STARTUP_WAIT_SSE_MS;
+        await new Promise(resolve => setTimeout(resolve, waitMs));
 
-      this.emit('process:started', { serverId, port, pid: proc.pid });
-      console.log(`[runtime] Started ${serverId} on port ${port} (${proxyType}, pid: ${proc.pid})`);
-      return true;
-    } catch (err) {
-      this.portManager.deallocatePort(serverId);
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      await this.updateRuntimeState(serverId, {
-        runtimeStatus: 'error',
-        runtimeLastError: errorMsg,
-      });
-      throw err;
+        // Initial health check
+        const healthResult = await this.checkProcessHealth(port);
+        managed.healthy = healthResult.healthy;
+        managed.authError = healthResult.isAuthError;
+
+        // Auth error: mark as running but unhealthy, don't retry
+        if (healthResult.isAuthError) {
+          await this.updateRuntimeState(serverId, {
+            runtimeStatus: 'running',
+            runtimePid: proc.pid ?? null,
+            runtimePort: port,
+            runtimeProxyTypeUsed: proxyType,
+            runtimeStartedAt: new Date(),
+            runtimeRestartCount: 0,
+            runtimeLastError: 'Authentication error detected (401/403)',
+          });
+          this.emit('process:started', { serverId, port, pid: proc.pid, authError: true });
+          console.log(`[runtime] Started ${serverId} on port ${port} (${proxyType}) - auth error detected`);
+          return true;
+        }
+
+        if (managed.healthy) {
+          await this.updateRuntimeState(serverId, {
+            runtimeStatus: 'running',
+            runtimePid: proc.pid ?? null,
+            runtimePort: port,
+            runtimeProxyTypeUsed: proxyType,
+            runtimeStartedAt: new Date(),
+            runtimeRestartCount: 0,
+            runtimeLastError: null,
+          });
+          this.emit('process:started', { serverId, port, pid: proc.pid });
+          const fallbackNote = proxyType !== primaryType ? ` (fallback from ${primaryType})` : '';
+          console.log(`[runtime] Started ${serverId} on port ${port} (${proxyType}${fallbackNote}, pid: ${proc.pid})`);
+          return true;
+        }
+
+        // Not healthy — stop and try next type
+        this.processes.delete(serverId);
+        proc.kill('SIGTERM');
+        await new Promise(resolve => setTimeout(resolve, 2_000));
+
+        if (tryOrder.indexOf(proxyType) < tryOrder.length - 1) {
+          console.log(`[runtime] ${serverId} failed with ${proxyType}, trying fallback...`);
+        }
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        // Clean up on spawn failure
+        this.processes.delete(serverId);
+        if (tryOrder.indexOf(proxyType) < tryOrder.length - 1) {
+          console.log(`[runtime] ${serverId} spawn failed with ${proxyType}: ${lastErr.message}, trying fallback...`);
+        }
+      }
     }
+
+    // All attempts failed
+    this.portManager.deallocatePort(serverId);
+    const errorMsg = lastErr?.message ?? 'All proxy types failed';
+    await this.updateRuntimeState(serverId, {
+      runtimeStatus: 'error',
+      runtimeLastError: errorMsg,
+    });
+    throw new Error(errorMsg);
   }
 
   async stopServer(serverId: string): Promise<boolean> {
@@ -206,31 +275,11 @@ export class ServerRuntimeService extends EventEmitter {
   getProcessInfo(serverId: string): RuntimeStatus | null {
     const managed = this.processes.get(serverId);
     if (!managed) return null;
-    return {
-      serverId,
-      status: managed.healthy ? 'running' : 'unhealthy',
-      pid: managed.process.pid ?? null,
-      port: managed.port,
-      proxyType: managed.proxyType,
-      startedAt: managed.startedAt,
-      restartCount: managed.restartCount,
-      healthy: managed.healthy,
-      lastError: managed.lastError,
-    };
+    return this.toRuntimeStatus(managed);
   }
 
   listRunningProcesses(): RuntimeStatus[] {
-    return Array.from(this.processes.values()).map(m => ({
-      serverId: m.serverId,
-      status: m.healthy ? 'running' : 'unhealthy',
-      pid: m.process.pid ?? null,
-      port: m.port,
-      proxyType: m.proxyType,
-      startedAt: m.startedAt,
-      restartCount: m.restartCount,
-      healthy: m.healthy,
-      lastError: m.lastError,
-    }));
+    return Array.from(this.processes.values()).map(m => this.toRuntimeStatus(m));
   }
 
   async getLogs(serverId: string, limit = 100): Promise<Array<{ stream: string; message: string; createdAt: Date | null }>> {
@@ -256,6 +305,10 @@ export class ServerRuntimeService extends EventEmitter {
     return this.portManager;
   }
 
+  resetFallbackAttempts(serverId: string): void {
+    this.fallbackAttempts.delete(serverId);
+  }
+
   // --- Health Monitoring ---
 
   startHealthMonitoring(): void {
@@ -274,28 +327,45 @@ export class ServerRuntimeService extends EventEmitter {
     for (const [serverId, managed] of this.processes) {
       try {
         const startTime = Date.now();
-        const healthy = await this.checkProcessHealth(managed.port);
+        const result = await this.checkProcessHealth(managed.port);
         const responseTime = Date.now() - startTime;
 
-        managed.healthy = healthy;
+        managed.healthy = result.healthy;
+        managed.authError = result.isAuthError;
+
         await this.healthService.recordHealth({
           serverId,
-          healthy,
+          healthy: result.healthy,
           responseTime,
-          error: healthy ? null : 'Health check failed',
+          error: result.healthy ? null : (result.isAuthError ? 'Auth error (401/403)' : 'Health check failed'),
         });
 
-        if (!healthy) {
-          managed.lastError = 'Health check failed';
+        if (result.healthy) {
+          managed.consecutiveFailures = 0;
+          managed.lastError = null;
+        } else {
+          managed.consecutiveFailures++;
+          managed.lastError = result.isAuthError ? 'Auth error' : 'Health check failed';
+
+          // Auto-restart on consecutive health failures (skip for auth errors)
+          if (!result.isAuthError && managed.consecutiveFailures >= CONSECUTIVE_FAILURE_RESTART_THRESHOLD) {
+            console.log(`[runtime] ${serverId}: ${managed.consecutiveFailures} consecutive health failures, restarting...`);
+            managed.consecutiveFailures = 0;
+            // Restart in background to not block health check loop
+            this.restartServer(serverId).catch(err => {
+              console.error(`[runtime] Failed to restart ${serverId} after health failures: ${(err as Error).message}`);
+            });
+          }
         }
       } catch (err) {
         managed.healthy = false;
+        managed.consecutiveFailures++;
         managed.lastError = err instanceof Error ? err.message : String(err);
       }
     }
   }
 
-  private async checkProcessHealth(port: number): Promise<boolean> {
+  private async checkProcessHealth(port: number): Promise<{ healthy: boolean; isAuthError: boolean; statusCode: number | null }> {
     const endpoints = [
       `http://localhost:${port}/openapi.json`,
       `http://localhost:${port}/docs`,
@@ -304,12 +374,15 @@ export class ServerRuntimeService extends EventEmitter {
     for (const url of endpoints) {
       try {
         const response = await fetch(url, { signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS) });
-        if (response.ok) return true;
+        if (response.ok) return { healthy: true, isAuthError: false, statusCode: response.status };
+        if (response.status === 401 || response.status === 403) {
+          return { healthy: false, isAuthError: true, statusCode: response.status };
+        }
       } catch {
         // Try next endpoint
       }
     }
-    return false;
+    return { healthy: false, isAuthError: false, statusCode: null };
   }
 
   // --- Lifecycle ---
@@ -357,6 +430,30 @@ export class ServerRuntimeService extends EventEmitter {
   async shutdown(): Promise<void> {
     this.stopHealthMonitoring();
     await this.stopAll();
+  }
+
+  // --- Private: Fallback Tracking ---
+
+  private canAttemptFallback(serverId: string): boolean {
+    const tracking = this.fallbackAttempts.get(serverId);
+    if (!tracking) return true;
+    // Reset after 30 minutes
+    if (Date.now() - tracking.lastAttempt > FALLBACK_RESET_MS) {
+      this.fallbackAttempts.delete(serverId);
+      return true;
+    }
+    return tracking.totalAttempts < this.config.maxRestartAttempts;
+  }
+
+  private trackFallbackAttempt(serverId: string, proxyType: string): void {
+    let tracking = this.fallbackAttempts.get(serverId);
+    if (!tracking) {
+      tracking = { attempts: new Set(), lastAttempt: Date.now(), totalAttempts: 0 };
+      this.fallbackAttempts.set(serverId, tracking);
+    }
+    tracking.attempts.add(proxyType);
+    tracking.lastAttempt = Date.now();
+    tracking.totalAttempts++;
   }
 
   // --- Private: Process Spawning ---
@@ -467,6 +564,7 @@ export class ServerRuntimeService extends EventEmitter {
         managed.logBuffer.shift();
       }
       this.persistLog(serverId, 'stdout', line);
+      this.processErrorOutput(serverId, managed, line);
     });
 
     proc.stderr?.on('data', (data: Buffer) => {
@@ -477,6 +575,7 @@ export class ServerRuntimeService extends EventEmitter {
         managed.logBuffer.shift();
       }
       this.persistLog(serverId, 'stderr', line);
+      this.processErrorOutput(serverId, managed, line);
     });
 
     proc.on('exit', (code, signal) => {
@@ -490,6 +589,23 @@ export class ServerRuntimeService extends EventEmitter {
     proc.on('error', (err) => {
       console.error(`[runtime] Process ${serverId} error: ${err.message}`);
       managed.lastError = err.message;
+    });
+  }
+
+  private processErrorOutput(serverId: string, managed: ManagedProcess, output: string): void {
+    const classified = classifyError(output);
+    if (!classified) return;
+
+    managed.lastError = classified.message;
+    managed.lastErrorCategory = classified.category;
+
+    if (classified.category === 'auth') {
+      managed.authError = true;
+    }
+
+    this.emit('process:error', {
+      serverId,
+      error: classified,
     });
   }
 
@@ -530,6 +646,23 @@ export class ServerRuntimeService extends EventEmitter {
         console.error(`[runtime] Failed to restart ${serverId}: ${(err as Error).message}`);
       }
     }, delay);
+  }
+
+  private toRuntimeStatus(m: ManagedProcess): RuntimeStatus {
+    return {
+      serverId: m.serverId,
+      status: m.authError ? 'auth_error' : (m.healthy ? 'running' : 'unhealthy'),
+      pid: m.process.pid ?? null,
+      port: m.port,
+      proxyType: m.proxyType,
+      fallbackUsed: m.fallbackUsed,
+      startedAt: m.startedAt,
+      restartCount: m.restartCount,
+      healthy: m.healthy,
+      authError: m.authError,
+      lastError: m.lastError,
+      lastErrorCategory: m.lastErrorCategory,
+    };
   }
 
   private async updateRuntimeState(serverId: string, state: Record<string, unknown>): Promise<void> {
