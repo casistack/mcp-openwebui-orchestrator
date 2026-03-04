@@ -9,6 +9,10 @@ function createMockDb() {
     marketplace_collections: [],
     marketplace_collection_items: [],
     marketplace_review_responses: [],
+    marketplace_listing_pricing: [],
+    marketplace_licenses: [],
+    org_marketplace_access: [],
+    org_marketplace_members: [],
     mcp_servers: [],
   };
 
@@ -232,6 +236,184 @@ describe('MarketplaceService', () => {
       expect(result.avgRating).toBe(0);
       expect(result.totalReviews).toBe(0);
       expect(result.listings).toEqual([]);
+    });
+  });
+
+  // --- Premium Pricing ---
+
+  describe('getListingPricing', () => {
+    it('should return null when no pricing exists', async () => {
+      const result = await service.getListingPricing('listing-1');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('setListingPricing', () => {
+    it('should create pricing for a listing', async () => {
+      const result = await service.setListingPricing('listing-1', {
+        tier: 'premium',
+        price: 9.99,
+        currency: 'USD',
+        billingModel: 'subscription',
+        billingInterval: 'monthly',
+      });
+
+      expect(result.listingId).toBe('listing-1');
+      expect(result.tier).toBe('premium');
+      expect(result.price).toBe(9.99);
+      expect(result.currency).toBe('USD');
+      expect(result.billingModel).toBe('subscription');
+      expect(result.billingInterval).toBe('monthly');
+      expect(result.id).toBeDefined();
+    });
+
+    it('should use defaults for optional pricing fields', async () => {
+      const result = await service.setListingPricing('listing-2', { tier: 'free' });
+
+      expect(result.price).toBe(0);
+      expect(result.currency).toBe('USD');
+      expect(result.billingModel).toBe('one-time');
+      expect(result.trialDays).toBe(0);
+    });
+  });
+
+  // --- Licensing ---
+
+  describe('issueLicense', () => {
+    it('should create a license with key prefix', async () => {
+      const result = await service.issueLicense('listing-1', 'user-1', 'premium', 10);
+
+      expect(result.listingId).toBe('listing-1');
+      expect(result.userId).toBe('user-1');
+      expect(result.tier).toBe('premium');
+      expect(result.seatsUsed).toBe(0);
+      expect(result.seatsTotal).toBe(10);
+      expect(result.status).toBe('active');
+      expect(result.licenseKey).toMatch(/^mcp-premium-/);
+      expect(result.id).toBeDefined();
+    });
+
+    it('should allow unlimited seats when seatsTotal is omitted', async () => {
+      const result = await service.issueLicense('listing-1', 'user-1', 'enterprise');
+      expect(result.seatsTotal).toBeNull();
+    });
+  });
+
+  describe('getUserLicenses', () => {
+    it('should return empty array when no licenses', async () => {
+      const result = await service.getUserLicenses('user-1');
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getLicense', () => {
+    it('should return null for nonexistent license', async () => {
+      const result = await service.getLicense('nonexistent');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getLicenseByKey', () => {
+    it('should return null for nonexistent key', async () => {
+      const result = await service.getLicenseByKey('nonexistent-key');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('validateLicense', () => {
+    it('should return invalid for nonexistent key', async () => {
+      const result = await service.validateLicense('no-such-key');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('License not found');
+    });
+  });
+
+  describe('revokeLicense', () => {
+    it('should return false for nonexistent license', async () => {
+      const result = await service.revokeLicense('nonexistent');
+      expect(result).toBe(false);
+    });
+  });
+
+  // --- Private Marketplace (Org) ---
+
+  describe('getOrgListings', () => {
+    it('should return empty array when no org listings', async () => {
+      const result = await service.getOrgListings('org-1');
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('addOrgListing', () => {
+    it('should add a listing to an org', async () => {
+      const result = await service.addOrgListing('org-1', 'listing-1');
+
+      expect(result.orgOwnerId).toBe('org-1');
+      expect(result.listingId).toBe('listing-1');
+      expect(result.accessLevel).toBe('install');
+      expect(result.approvedAt).toBeNull();
+      expect(result.id).toBeDefined();
+    });
+
+    it('should use custom access level', async () => {
+      const result = await service.addOrgListing('org-2', 'listing-2', 'admin');
+      expect(result.accessLevel).toBe('admin');
+    });
+  });
+
+  describe('removeOrgListing', () => {
+    it('should return true', async () => {
+      const result = await service.removeOrgListing('org-1', 'listing-1');
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('approveOrgListing', () => {
+    it('should return true', async () => {
+      const result = await service.approveOrgListing('org-1', 'listing-1', 'admin-1');
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('getOrgMembers', () => {
+    it('should return empty array when no members', async () => {
+      const result = await service.getOrgMembers('org-1');
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('addOrgMember', () => {
+    it('should add a member with default role', async () => {
+      const result = await service.addOrgMember('org-1', 'user-1');
+
+      expect(result.orgOwnerId).toBe('org-1');
+      expect(result.userId).toBe('user-1');
+      expect(result.role).toBe('member');
+      expect(result.id).toBeDefined();
+    });
+
+    it('should add a member with custom role', async () => {
+      const result = await service.addOrgMember('org-2', 'user-2', 'admin');
+      expect(result.role).toBe('admin');
+    });
+  });
+
+  describe('removeOrgMember', () => {
+    it('should return true', async () => {
+      const result = await service.removeOrgMember('org-1', 'user-1');
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('isOrgMember', () => {
+    it('should return true when userId equals orgOwnerId', async () => {
+      const result = await service.isOrgMember('user-1', 'user-1');
+      expect(result).toBe(true);
+    });
+
+    it('should return false when user is not a member', async () => {
+      const result = await service.isOrgMember('org-1', 'stranger');
+      expect(result).toBe(false);
     });
   });
 });

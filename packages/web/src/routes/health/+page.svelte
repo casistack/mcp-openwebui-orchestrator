@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { trpc } from '$lib/trpc';
+	import { websocketStore } from '$lib/stores/websocket';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
@@ -28,7 +29,19 @@
 		refreshInterval = setInterval(() => { refreshing = true; loadAll(); }, 30000);
 	});
 
-	onDestroy(() => { if (refreshInterval) clearInterval(refreshInterval); });
+	onDestroy(() => {
+		if (refreshInterval) clearInterval(refreshInterval);
+		unsubWs();
+	});
+
+	// Auto-refresh on WebSocket alert/health events
+	const unsubWs = websocketStore.subscribe(($ws) => {
+		const last = $ws.lastEvent;
+		if (!last || loading) return;
+		if (last.type === 'alert:created' || last.type.startsWith('server:ping') || last.type === 'server:error') {
+			loadAll();
+		}
+	});
 
 	async function loadAll() {
 		try {

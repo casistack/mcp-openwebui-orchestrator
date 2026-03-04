@@ -784,6 +784,148 @@ export const appRouter = router({
       if (!ms) return { totalListings: 0, totalInstalls: 0, avgRating: 0, totalReviews: 0, listings: [] };
       return ms.getPublisherAnalytics(ctx.user.id);
     }),
+
+    // --- Premium Pricing ---
+    getPricing: protectedProcedure
+      .input(z.object({ listingId: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return null;
+        return ms.getListingPricing(input.listingId);
+      }),
+
+    setPricing: protectedProcedure
+      .input(z.object({
+        listingId: z.string(),
+        tier: z.enum(['free', 'premium', 'enterprise']),
+        price: z.number().min(0).optional(),
+        currency: z.string().optional(),
+        billingModel: z.enum(['one-time', 'subscription']).optional(),
+        billingInterval: z.enum(['monthly', 'yearly']).nullish(),
+        trialDays: z.number().min(0).optional(),
+        seatLimit: z.number().min(1).nullish(),
+        features: z.array(z.string()).optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        const { listingId, billingInterval, seatLimit, ...rest } = input;
+        return ms.setListingPricing(listingId, {
+          ...rest,
+          billingInterval: billingInterval ?? undefined,
+          seatLimit: seatLimit ?? undefined,
+        });
+      }),
+
+    // --- Licensing ---
+    myLicenses: protectedProcedure.query(({ ctx }) => {
+      const ms = ctx.services.marketplaceService;
+      if (!ms) return [];
+      return ms.getUserLicenses(ctx.user.id);
+    }),
+
+    issueLicense: protectedProcedure
+      .input(z.object({
+        listingId: z.string(),
+        userId: z.string(),
+        tier: z.enum(['premium', 'enterprise']),
+        seatsTotal: z.number().min(1).nullish(),
+        expiresAt: z.string().nullish(),
+      }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.issueLicense(
+          input.listingId,
+          input.userId,
+          input.tier,
+          input.seatsTotal ?? undefined,
+          input.expiresAt ? new Date(input.expiresAt) : undefined,
+        );
+      }),
+
+    revokeLicense: protectedProcedure
+      .input(z.object({ licenseId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.revokeLicense(input.licenseId);
+      }),
+
+    validateLicense: protectedProcedure
+      .input(z.object({ licenseKey: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return { valid: false, reason: 'Marketplace service not available' };
+        return ms.validateLicense(input.licenseKey);
+      }),
+
+    // --- Private Marketplace (Org) ---
+    orgListings: protectedProcedure
+      .input(z.object({ orgOwnerId: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return [];
+        const isMember = await ms.isOrgMember(input.orgOwnerId, ctx.user.id);
+        if (!isMember) return [];
+        return ms.getOrgListings(input.orgOwnerId);
+      }),
+
+    addOrgListing: protectedProcedure
+      .input(z.object({
+        orgOwnerId: z.string(),
+        listingId: z.string(),
+        accessLevel: z.enum(['install', 'admin']).optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.addOrgListing(input.orgOwnerId, input.listingId, input.accessLevel);
+      }),
+
+    removeOrgListing: protectedProcedure
+      .input(z.object({ orgOwnerId: z.string(), listingId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.removeOrgListing(input.orgOwnerId, input.listingId);
+      }),
+
+    approveOrgListing: protectedProcedure
+      .input(z.object({ orgOwnerId: z.string(), listingId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.approveOrgListing(input.orgOwnerId, input.listingId, ctx.user.id);
+      }),
+
+    orgMembers: protectedProcedure
+      .input(z.object({ orgOwnerId: z.string() }))
+      .query(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) return [];
+        return ms.getOrgMembers(input.orgOwnerId);
+      }),
+
+    addOrgMember: protectedProcedure
+      .input(z.object({
+        orgOwnerId: z.string(),
+        userId: z.string(),
+        role: z.enum(['member', 'admin']).optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.addOrgMember(input.orgOwnerId, input.userId, input.role);
+      }),
+
+    removeOrgMember: protectedProcedure
+      .input(z.object({ orgOwnerId: z.string(), userId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const ms = ctx.services.marketplaceService;
+        if (!ms) throw new Error('Marketplace service not available');
+        return ms.removeOrgMember(input.orgOwnerId, input.userId);
+      }),
   }),
 
   // --- Runtime ---

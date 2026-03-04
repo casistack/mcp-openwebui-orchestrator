@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '../app.css';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ModeWatcher, toggleMode, mode as modeState } from 'mode-watcher';
@@ -8,15 +8,18 @@
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
+	import { websocketStore } from '$lib/stores/websocket';
 	import {
 		LayoutDashboard, HeartPulse, Server, Layers, Globe,
 		Search, Lightbulb, KeyRound, ClipboardList, Settings,
 		Sun, Moon, Command, Store, Plus, Filter, Shield, Lock,
-		FolderOpen, BarChart3, Activity
+		FolderOpen, BarChart3, Activity, Key, Building
 	} from '@lucide/svelte';
 
 	let authChecked = $state(false);
 	let authenticated = $state(false);
+
+	onDestroy(() => { websocketStore.disconnect(); });
 
 	onMount(async () => {
 		if (page.url.pathname === '/login') {
@@ -30,6 +33,7 @@
 				if (data?.session) {
 					authenticated = true;
 					authChecked = true;
+					websocketStore.connect();
 					return;
 				}
 			}
@@ -64,6 +68,8 @@
 				{ href: '/marketplace/publish', label: 'Publish', icon: Plus },
 				{ href: '/marketplace/collections', label: 'Collections', icon: FolderOpen },
 				{ href: '/marketplace/analytics', label: 'Analytics', icon: BarChart3 },
+				{ href: '/marketplace/licenses', label: 'Licenses', icon: Key },
+				{ href: '/marketplace/private', label: 'Private', icon: Building },
 			],
 		},
 		{

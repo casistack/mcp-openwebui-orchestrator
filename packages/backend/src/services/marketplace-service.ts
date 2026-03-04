@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import {
   marketplaceListings, marketplaceReviews, marketplaceInstalls, mcpServers,
   marketplaceCollections, marketplaceCollectionItems, marketplaceReviewResponses,
+  marketplaceListingPricing, marketplaceLicenses,
+  orgMarketplaceAccess, orgMarketplaceMembers,
 } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
@@ -473,6 +475,195 @@ export class MarketplaceService {
     }).sort((a, b) => b.installCount - a.installCount);
 
     return { totalListings: myListings.length, totalInstalls, avgRating, totalReviews, listings: listingAnalytics };
+  }
+
+  // --- Premium Pricing ---
+
+  async getListingPricing(listingId: string) {
+    const results = await this.db.select().from(marketplaceListingPricing);
+    return results.find(p => p.listingId === listingId) ?? null;
+  }
+
+  async setListingPricing(listingId: string, pricing: {
+    tier: string;
+    price?: number;
+    currency?: string;
+    billingModel?: string;
+    billingInterval?: string;
+    trialDays?: number;
+    seatLimit?: number;
+    features?: string[];
+  }) {
+    const existing = await this.getListingPricing(listingId);
+    const now = new Date();
+
+    if (existing) {
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      for (const [key, value] of Object.entries(pricing)) {
+        if (value !== undefined) {
+          sets.push(`${this.camelToSnake(key)} = ?`);
+          vals.push(typeof value === 'object' ? JSON.stringify(value) : value);
+        }
+      }
+      sets.push('updated_at = ?');
+      vals.push(Math.floor(now.getTime() / 1000));
+      vals.push(existing.id);
+      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
+        .run?.(`UPDATE marketplace_listing_pricing SET ${sets.join(', ')} WHERE id = ?`, ...vals);
+      return { ...existing, ...pricing, updatedAt: now };
+    }
+
+    const id = crypto.randomUUID();
+    const row = {
+      id,
+      listingId,
+      tier: pricing.tier,
+      price: pricing.price ?? 0,
+      currency: pricing.currency ?? 'USD',
+      billingModel: pricing.billingModel ?? 'one-time',
+      billingInterval: pricing.billingInterval ?? null,
+      trialDays: pricing.trialDays ?? 0,
+      seatLimit: pricing.seatLimit ?? null,
+      features: pricing.features ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.db.insert(marketplaceListingPricing).values(row);
+    return row;
+  }
+
+  // --- Licensing ---
+
+  async getUserLicenses(userId: string) {
+    const results = await this.db.select().from(marketplaceLicenses);
+    return results.filter(l => l.userId === userId && l.status === 'active');
+  }
+
+  async getLicense(licenseId: string) {
+    const results = await this.db.select().from(marketplaceLicenses);
+    return results.find(l => l.id === licenseId) ?? null;
+  }
+
+  async getLicenseByKey(licenseKey: string) {
+    const results = await this.db.select().from(marketplaceLicenses);
+    return results.find(l => l.licenseKey === licenseKey) ?? null;
+  }
+
+  async issueLicense(listingId: string, userId: string, tier: string, seatsTotal?: number, expiresAt?: Date) {
+    const licenseKey = `mcp-${tier}-${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const id = crypto.randomUUID();
+    const now = new Date();
+
+    const license = {
+      id,
+      listingId,
+      userId,
+      licenseKey,
+      tier,
+      seatsUsed: 0,
+      seatsTotal: seatsTotal ?? null,
+      status: 'active',
+      expiresAt: expiresAt ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.db.insert(marketplaceLicenses).values(license);
+    return license;
+  }
+
+  async revokeLicense(licenseId: string) {
+    const existing = await this.getLicense(licenseId);
+    if (!existing) return false;
+    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
+      .run?.(`UPDATE marketplace_licenses SET status = 'revoked', updated_at = ? WHERE id = ?`,
+        Math.floor(Date.now() / 1000), licenseId);
+    return true;
+  }
+
+  async validateLicense(licenseKey: string): Promise<{ valid: boolean; reason?: string; license?: unknown }> {
+    const license = await this.getLicenseByKey(licenseKey);
+    if (!license) return { valid: false, reason: 'License not found' };
+    if (license.status !== 'active') return { valid: false, reason: `License is ${license.status}` };
+    if (license.expiresAt && new Date(license.expiresAt) < new Date()) {
+      return { valid: false, reason: 'License has expired' };
+    }
+    if (license.seatsTotal && (license.seatsUsed ?? 0) >= license.seatsTotal) {
+      return { valid: false, reason: 'All seats are in use' };
+    }
+    return { valid: true, license };
+  }
+
+  // --- Private Marketplace (Org-Scoped) ---
+
+  async getOrgListings(orgOwnerId: string) {
+    const access = await this.db.select().from(orgMarketplaceAccess);
+    const orgAccess = access.filter(a => a.orgOwnerId === orgOwnerId);
+    if (orgAccess.length === 0) return [];
+
+    const listings = await this.db.select().from(marketplaceListings);
+    const listingMap = new Map(listings.map(l => [l.id, l]));
+
+    return orgAccess.map(a => ({
+      ...a,
+      listing: listingMap.get(a.listingId) ?? null,
+    })).filter(a => a.listing !== null);
+  }
+
+  async addOrgListing(orgOwnerId: string, listingId: string, accessLevel = 'install') {
+    const existing = await this.db.select().from(orgMarketplaceAccess);
+    if (existing.find(a => a.orgOwnerId === orgOwnerId && a.listingId === listingId)) {
+      throw new Error('Listing already added to this organization');
+    }
+
+    const id = crypto.randomUUID();
+    const row = { id, orgOwnerId, listingId, accessLevel, approvedAt: null, approvedBy: null };
+    await this.db.insert(orgMarketplaceAccess).values(row);
+    return row;
+  }
+
+  async removeOrgListing(orgOwnerId: string, listingId: string) {
+    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
+      .run?.(`DELETE FROM org_marketplace_access WHERE org_owner_id = ? AND listing_id = ?`, orgOwnerId, listingId);
+    return true;
+  }
+
+  async approveOrgListing(orgOwnerId: string, listingId: string, approvedBy: string) {
+    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
+      .run?.(`UPDATE org_marketplace_access SET approved_at = ?, approved_by = ? WHERE org_owner_id = ? AND listing_id = ?`,
+        Math.floor(Date.now() / 1000), approvedBy, orgOwnerId, listingId);
+    return true;
+  }
+
+  // --- Org Members ---
+
+  async getOrgMembers(orgOwnerId: string) {
+    const results = await this.db.select().from(orgMarketplaceMembers);
+    return results.filter(m => m.orgOwnerId === orgOwnerId);
+  }
+
+  async addOrgMember(orgOwnerId: string, userId: string, role = 'member') {
+    const existing = await this.db.select().from(orgMarketplaceMembers);
+    if (existing.find(m => m.orgOwnerId === orgOwnerId && m.userId === userId)) {
+      throw new Error('User is already a member of this organization');
+    }
+
+    const id = crypto.randomUUID();
+    const row = { id, orgOwnerId, userId, role };
+    await this.db.insert(orgMarketplaceMembers).values(row);
+    return row;
+  }
+
+  async removeOrgMember(orgOwnerId: string, userId: string) {
+    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
+      .run?.(`DELETE FROM org_marketplace_members WHERE org_owner_id = ? AND user_id = ?`, orgOwnerId, userId);
+    return true;
+  }
+
+  async isOrgMember(orgOwnerId: string, userId: string): Promise<boolean> {
+    if (orgOwnerId === userId) return true;
+    const members = await this.getOrgMembers(orgOwnerId);
+    return members.some(m => m.userId === userId);
   }
 
   private camelToSnake(str: string): string {

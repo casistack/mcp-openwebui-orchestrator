@@ -104,3 +104,37 @@ export const runtimeEvents: Readable<WSEvent[]> = derived(websocketStore, ($ws) 
     e.type.startsWith('transport:')
   )
 );
+
+// Server connection status map (serverId -> latest status)
+export const serverStatuses: Readable<Map<string, { status: string; toolCount?: number; lastPingMs?: number | null; lastError?: string | null; timestamp: string }>> = derived(websocketStore, ($ws) => {
+  const map = new Map<string, { status: string; toolCount?: number; lastPingMs?: number | null; lastError?: string | null; timestamp: string }>();
+  for (const e of $ws.events) {
+    const serverId = e.data.serverId as string | undefined;
+    if (!serverId) continue;
+
+    if (e.type === 'server:connected' || e.type === 'server:reconnected') {
+      map.set(serverId, { status: 'connected', toolCount: e.data.toolCount as number, timestamp: e.timestamp });
+    } else if (e.type === 'server:disconnected') {
+      map.set(serverId, { status: 'disconnected', timestamp: e.timestamp });
+    } else if (e.type === 'server:error') {
+      map.set(serverId, { status: 'error', lastError: e.data.error as string ?? null, timestamp: e.timestamp });
+    } else if (e.type === 'server:reconnecting') {
+      map.set(serverId, { status: 'reconnecting', timestamp: e.timestamp });
+    } else if (e.type === 'server:ping') {
+      const existing = map.get(serverId);
+      if (existing) {
+        existing.lastPingMs = e.data.latencyMs as number | null;
+        existing.timestamp = e.timestamp;
+      }
+    } else if (e.type === 'server:tools') {
+      const existing = map.get(serverId);
+      if (existing) {
+        existing.toolCount = (e.data.tools as unknown[])?.length ?? 0;
+      }
+    }
+  }
+  return map;
+});
+
+// Connected state as a simple boolean store
+export const wsConnected: Readable<boolean> = derived(websocketStore, ($ws) => $ws.connected);

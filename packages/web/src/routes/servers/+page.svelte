@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { trpc } from '$lib/trpc';
+	import { websocketStore } from '$lib/stores/websocket';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -107,6 +108,17 @@
 	}
 
 	onMount(loadServers);
+
+	// Auto-refresh on WebSocket events (server status changes, runtime events)
+	const unsubWs = websocketStore.subscribe(($ws) => {
+		const last = $ws.lastEvent;
+		if (!last || loading) return;
+		const t = last.type;
+		if (t.startsWith('server:') || t.startsWith('process:') || t.startsWith('unified:') || t.startsWith('transport:')) {
+			loadServers();
+		}
+	});
+	onDestroy(unsubWs);
 
 	function resetForm() { form = { name: '', transport: 'stdio', command: '', args: '', url: '', proxyType: 'mcpo', needsProxy: true }; }
 

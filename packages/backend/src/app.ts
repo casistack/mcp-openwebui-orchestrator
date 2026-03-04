@@ -36,6 +36,7 @@ import { OAuthTokenService } from './services/oauth-token-service.js';
 import { AlertService } from './services/alert-service.js';
 import { SystemMetricsService } from './services/system-metrics-service.js';
 import { LogRotationService } from './services/log-rotation-service.js';
+import rateLimit from 'express-rate-limit';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/routers.js';
 import { createTRPCContext } from './trpc/index.js';
@@ -176,8 +177,16 @@ export async function createApp(config: AppConfig = {}): Promise<{
     db,
   }));
 
-  // Admin routes (user management, roles, audit logs, sandbox, secrets)
-  app.use('/api/v1/admin', createAdminRouter(auth, {
+  // Admin routes with higher rate limits (user management, roles, audit logs, sandbox, secrets)
+  const adminLimiter = rateLimit({
+    windowMs: 60_000,
+    max: parseInt(process.env.RATE_LIMIT_ADMIN ?? '100', 10),
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.headers['x-forwarded-for'] as string ?? req.ip ?? 'unknown',
+    message: { error: 'Too many admin requests, please try again later' },
+  });
+  app.use('/api/v1/admin', adminLimiter, createAdminRouter(auth, {
     rbacService,
     sandboxService,
     secretsService,
@@ -196,6 +205,27 @@ export async function createApp(config: AppConfig = {}): Promise<{
     wsBroadcaster,
     db,
   }));
+
+  // Rate limiting on tRPC endpoints
+  const trpcMutationLimiter = rateLimit({
+    windowMs: 60_000,
+    max: parseInt(process.env.RATE_LIMIT_MUTATIONS ?? '30', 10),
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.headers['x-forwarded-for'] as string ?? req.ip ?? 'unknown',
+    skip: (req) => req.method === 'GET', // Only limit mutations (POST)
+    message: { error: 'Too many requests, please try again later' },
+  });
+  const trpcReadLimiter = rateLimit({
+    windowMs: 60_000,
+    max: parseInt(process.env.RATE_LIMIT_READS ?? '200', 10),
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.headers['x-forwarded-for'] as string ?? req.ip ?? 'unknown',
+    skip: (req) => req.method !== 'GET', // Only limit reads (GET)
+    message: { error: 'Too many requests, please try again later' },
+  });
+  app.use('/api/trpc', trpcMutationLimiter, trpcReadLimiter);
 
   // tRPC endpoint for type-safe frontend communication
   app.use(

@@ -14,3 +14,4 @@ export * from './oauth-tokens';
 export * from './runtime-config';
 export * from './health-alerts';
 export * from './marketplace-collections';
+export * from './marketplace-premium';

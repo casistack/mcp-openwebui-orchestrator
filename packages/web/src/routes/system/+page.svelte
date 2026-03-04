@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import * as Card from '$lib/components/ui/card';
+	import { websocketStore } from '$lib/stores/websocket';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Skeleton } from '$lib/components/ui/skeleton';
@@ -29,7 +30,20 @@
 		refreshInterval = setInterval(() => { refreshing = true; loadMetrics(); }, 10000);
 	});
 
-	onDestroy(() => { if (refreshInterval) clearInterval(refreshInterval); });
+	onDestroy(() => {
+		if (refreshInterval) clearInterval(refreshInterval);
+		unsubWs();
+	});
+
+	// Auto-refresh on WebSocket runtime/connection events
+	const unsubWs = websocketStore.subscribe(($ws) => {
+		const last = $ws.lastEvent;
+		if (!last || loading) return;
+		if (last.type.startsWith('process:') || last.type.startsWith('server:')) {
+			refreshing = true;
+			loadMetrics();
+		}
+	});
 
 	async function loadMetrics() {
 		try {
