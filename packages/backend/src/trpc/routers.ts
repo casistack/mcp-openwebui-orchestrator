@@ -699,6 +699,61 @@ export const appRouter = router({
     }),
   }),
 
+  // --- Runtime Mode ---
+  runtimeMode: router({
+    getMode: protectedProcedure.query(({ ctx }) => {
+      const mm = ctx.services.runtimeModeManager;
+      if (!mm) return { mode: 'individual', available: false };
+      return { mode: mm.getMode(), available: true };
+    }),
+
+    switchMode: protectedProcedure
+      .input(z.object({ mode: z.enum(['individual', 'unified', 'multi-transport']) }))
+      .mutation(async ({ ctx, input }) => {
+        const mm = ctx.services.runtimeModeManager;
+        if (!mm) throw new Error('Runtime mode manager not available');
+        await mm.switchMode(input.mode);
+        return { mode: mm.getMode() };
+      }),
+
+    status: protectedProcedure.query(({ ctx }) => {
+      const mm = ctx.services.runtimeModeManager;
+      if (!mm) return null;
+      return mm.getStatus();
+    }),
+
+    transportConfig: protectedProcedure.query(({ ctx }) => {
+      const mm = ctx.services.runtimeModeManager;
+      if (!mm) return { sse: true, websocket: true, streamableHttp: true };
+      return mm.getTransportConfig();
+    }),
+
+    updateTransportConfig: protectedProcedure
+      .input(z.object({
+        sse: z.boolean().optional(),
+        websocket: z.boolean().optional(),
+        streamableHttp: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const mm = ctx.services.runtimeModeManager;
+        if (!mm) throw new Error('Runtime mode manager not available');
+        await mm.updateTransportConfig(input);
+        return mm.getTransportConfig();
+      }),
+
+    unifiedRoutes: protectedProcedure.query(async ({ ctx }) => {
+      const mm = ctx.services.runtimeModeManager;
+      if (!mm || mm.getMode() !== 'unified') return [];
+      return mm.getUnifiedService().getServerRoutes();
+    }),
+
+    transportStatus: protectedProcedure.query(({ ctx }) => {
+      const mm = ctx.services.runtimeModeManager;
+      if (!mm || mm.getMode() !== 'multi-transport') return [];
+      return mm.getMultiTransportService().getTransportStatus();
+    }),
+  }),
+
   // --- Tool Permissions ---
   toolPermissions: router({
     list: protectedProcedure

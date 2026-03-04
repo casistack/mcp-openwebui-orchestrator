@@ -26,6 +26,9 @@ import { createOpenAPIRouter } from './routes/openapi.js';
 import { createAuditMiddleware } from './middleware/audit.js';
 import { ConfigParser } from './core/config-parser.js';
 import { ServerRuntimeService } from './services/server-runtime-service.js';
+import { UnifiedRuntimeService } from './services/unified-runtime-service.js';
+import { MultiTransportService } from './services/multi-transport-service.js';
+import { RuntimeModeManager } from './services/runtime-mode-manager.js';
 import { MarketplaceService } from './services/marketplace-service.js';
 import { MiddlewarePipeline } from './services/middleware-pipeline.js';
 import { ToolPermissionService } from './services/tool-permission-service.js';
@@ -49,6 +52,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
   wsBroadcaster: WSBroadcaster;
   healthService: HealthService;
   serverRuntimeService: ServerRuntimeService | null;
+  runtimeModeManager: RuntimeModeManager | null;
 }> {
   const db = createDatabase({
     type: 'sqlite',
@@ -79,9 +83,19 @@ export async function createApp(config: AppConfig = {}): Promise<{
   connectionManager.setHealthService(healthService);
   wsBroadcaster.wireConnectionManager(connectionManager);
 
-  // Server runtime service (spawns and manages MCPO/MCP-Bridge processes)
-  const serverRuntimeService = process.env.ENABLE_SERVER_RUNTIME !== 'false'
+  // Server runtime services (spawns and manages MCPO/MCP-Bridge processes)
+  const runtimeEnabled = process.env.ENABLE_SERVER_RUNTIME !== 'false';
+  const serverRuntimeService = runtimeEnabled
     ? new ServerRuntimeService(serverService, healthService, secretsService, db)
+    : null;
+  const unifiedRuntimeService = runtimeEnabled
+    ? new UnifiedRuntimeService(serverService, healthService, secretsService, db)
+    : null;
+  const multiTransportService = runtimeEnabled
+    ? new MultiTransportService(serverService, healthService, secretsService, db)
+    : null;
+  const runtimeModeManager = (runtimeEnabled && serverRuntimeService && unifiedRuntimeService && multiTransportService)
+    ? new RuntimeModeManager(serverRuntimeService, unifiedRuntimeService, multiTransportService, db)
     : null;
 
   // Seed default RBAC roles/permissions on first run
@@ -158,6 +172,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
         connectionManager,
         healthService,
         serverRuntimeService,
+        runtimeModeManager,
         marketplaceService,
         middlewarePipeline,
         toolPermissionService,
@@ -196,8 +211,21 @@ export async function createApp(config: AppConfig = {}): Promise<{
   // Load middleware pipelines from DB into memory
   middlewarePipeline.loadAllPipelines().catch(() => { /* non-critical */ });
 
-  // Start runtime health monitoring and auto-start servers if enabled
-  if (serverRuntimeService) {
+  // Initialize runtime mode manager and auto-start servers
+  if (runtimeModeManager) {
+    runtimeModeManager.initialize().then(async () => {
+      const mode = runtimeModeManager.getMode();
+      console.log(`Runtime mode: ${mode}`);
+      runtimeModeManager.startHealthMonitoring();
+      try {
+        const { started, failed } = await runtimeModeManager.startAll();
+        if (started > 0 || failed > 0) {
+          console.log(`Server runtime auto-start (${mode}): ${started} started, ${failed} failed`);
+        }
+      } catch { /* non-critical */ }
+    }).catch(() => { /* non-critical */ });
+  } else if (serverRuntimeService) {
+    // Fallback: if mode manager isn't available, use individual service directly
     serverRuntimeService.startHealthMonitoring();
     serverRuntimeService.startAll().then(({ started, failed }) => {
       if (started > 0 || failed > 0) {
@@ -206,7 +234,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
     }).catch(() => { /* non-critical */ });
   }
 
-  return { app, db, auth, serverService, rbacService, connectionManager, wsBroadcaster, healthService, serverRuntimeService };
+  return { app, db, auth, serverService, rbacService, connectionManager, wsBroadcaster, healthService, serverRuntimeService, runtimeModeManager };
 }
 
 async function autoImportServers(

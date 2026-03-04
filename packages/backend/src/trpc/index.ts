@@ -8,6 +8,7 @@ import type { ApiKeyService } from '../services/api-key-service.js';
 import type { ConnectionManager } from '../services/connection-manager.js';
 import type { HealthService } from '../services/health-service.js';
 import type { ServerRuntimeService } from '../services/server-runtime-service.js';
+import type { RuntimeModeManager } from '../services/runtime-mode-manager.js';
 import type { MarketplaceService } from '../services/marketplace-service.js';
 import type { MiddlewarePipeline } from '../services/middleware-pipeline.js';
 import type { ToolPermissionService } from '../services/tool-permission-service.js';
@@ -28,6 +29,7 @@ export interface TRPCContext {
     connectionManager?: ConnectionManager;
     healthService?: HealthService;
     serverRuntimeService?: ServerRuntimeService | null;
+    runtimeModeManager?: RuntimeModeManager | null;
     marketplaceService?: MarketplaceService;
     middlewarePipeline?: MiddlewarePipeline;
     toolPermissionService?: ToolPermissionService;

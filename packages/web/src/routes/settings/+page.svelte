@@ -8,7 +8,9 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { LogOut, AlertCircle, CheckCircle } from '@lucide/svelte';
+	import { LogOut, AlertCircle, CheckCircle, Radio } from '@lucide/svelte';
+	import { Switch } from '$lib/components/ui/switch';
+	import { trpc } from '$lib/trpc';
 
 	interface UserInfo { userId: string; role: { id: string; name: string } | null; permissions: string[]; }
 	interface User { id: string; email: string; name: string | null; role: { name: string } | null; }
@@ -22,6 +24,20 @@
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
 
+	// Runtime mode state
+	type RuntimeMode = 'individual' | 'unified' | 'multi-transport';
+	let runtimeMode = $state<RuntimeMode>('individual');
+	let runtimeAvailable = $state(false);
+	let modeSwitching = $state(false);
+	let transportConfig = $state({ sse: true, websocket: true, streamableHttp: true });
+	let transportSaving = $state(false);
+
+	const runtimeModes: { id: RuntimeMode; label: string; desc: string }[] = [
+		{ id: 'individual', label: 'Individual', desc: 'Separate proxy per server. Port-based access (4200, 4201, ...). Best for development and debugging.' },
+		{ id: 'unified', label: 'Unified', desc: 'Single MCPO process, route-based access (/server-name/). Resource-efficient, production-ready.' },
+		{ id: 'multi-transport', label: 'Multi-Transport', desc: 'SSE + WebSocket + Streamable HTTP per server via SuperGateway. Maximum protocol coverage.' },
+	];
+
 	async function load() {
 		try {
 			const meRes = await fetch('/api/v1/admin/me');
@@ -31,8 +47,50 @@
 				if (usersRes.ok) users = (await usersRes.json()).users;
 				if (rolesRes.ok) roleList = (await rolesRes.json()).roles;
 			}
+			// Load runtime mode
+			await loadRuntimeMode();
 		} catch { error = 'Failed to load'; }
 		loading = false;
+	}
+
+	async function loadRuntimeMode() {
+		try {
+			const result = await trpc.runtimeMode.getMode.query() as { mode: RuntimeMode; available: boolean };
+			runtimeMode = result.mode;
+			runtimeAvailable = result.available;
+			if (runtimeAvailable) {
+				const tc = await trpc.runtimeMode.transportConfig.query() as typeof transportConfig;
+				transportConfig = tc;
+			}
+		} catch { /* runtime mode not available */ }
+	}
+
+	async function handleModeSwitch(newMode: RuntimeMode) {
+		if (newMode === runtimeMode || modeSwitching) return;
+		modeSwitching = true;
+		error = null;
+		success = null;
+		try {
+			await trpc.runtimeMode.switchMode.mutate({ mode: newMode });
+			runtimeMode = newMode;
+			success = `Runtime mode switched to ${newMode}`;
+		} catch (e: unknown) {
+			error = e instanceof Error ? e.message : 'Failed to switch mode';
+		}
+		modeSwitching = false;
+	}
+
+	async function handleTransportToggle(transport: 'sse' | 'websocket' | 'streamableHttp', enabled: boolean) {
+		transportSaving = true;
+		try {
+			const update: Record<string, boolean> = {};
+			update[transport] = enabled;
+			const result = await trpc.runtimeMode.updateTransportConfig.mutate(update) as typeof transportConfig;
+			transportConfig = result;
+		} catch (e: unknown) {
+			error = e instanceof Error ? e.message : 'Failed to update transport config';
+		}
+		transportSaving = false;
 	}
 
 	onMount(load);
@@ -77,6 +135,7 @@
 			<Tabs.List class="mb-6">
 				<Tabs.Trigger value="profile">Profile</Tabs.Trigger>
 				<Tabs.Trigger value="appearance">Appearance</Tabs.Trigger>
+				{#if runtimeAvailable}<Tabs.Trigger value="runtime">Runtime Mode</Tabs.Trigger>{/if}
 				{#if isAdmin}<Tabs.Trigger value="users">User Management</Tabs.Trigger>{/if}
 			</Tabs.List>
 
@@ -132,6 +191,69 @@
 					</Card.Content>
 				</Card.Root>
 			</Tabs.Content>
+
+			{#if runtimeAvailable}
+				<Tabs.Content value="runtime">
+					<Card.Root>
+						<Card.Header>
+							<Card.Title>Runtime Mode</Card.Title>
+							<p class="text-xs text-muted-foreground">Choose how MCP servers are deployed and accessed</p>
+						</Card.Header>
+						<Card.Content class="space-y-4">
+							<div class="grid gap-3">
+								{#each runtimeModes as mode}
+									<button
+										class="flex items-start gap-3 p-4 rounded-lg border text-left transition-colors {runtimeMode === mode.id ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/50'}"
+										onclick={() => handleModeSwitch(mode.id)}
+										disabled={modeSwitching}
+									>
+										<div class="mt-0.5">
+											<Radio class="size-4 {runtimeMode === mode.id ? 'text-primary' : 'text-muted-foreground'}" />
+										</div>
+										<div class="flex-1">
+											<div class="flex items-center gap-2">
+												<span class="font-medium text-sm">{mode.label}</span>
+												{#if runtimeMode === mode.id}
+													<Badge variant="default" class="text-xs">Active</Badge>
+												{/if}
+											</div>
+											<p class="text-xs text-muted-foreground mt-1">{mode.desc}</p>
+										</div>
+									</button>
+								{/each}
+							</div>
+							{#if modeSwitching}
+								<p class="text-xs text-muted-foreground">Switching mode... This may take a moment as processes are stopped and restarted.</p>
+							{/if}
+						</Card.Content>
+					</Card.Root>
+
+					{#if runtimeMode === 'multi-transport'}
+						<Card.Root class="mt-4">
+							<Card.Header>
+								<Card.Title class="text-sm">Transport Protocols</Card.Title>
+								<p class="text-xs text-muted-foreground">Enable or disable transport protocols for multi-transport mode</p>
+							</Card.Header>
+							<Card.Content class="space-y-3">
+								<div class="flex items-center justify-between">
+									<div><p class="text-sm font-medium">SSE (Server-Sent Events)</p><p class="text-xs text-muted-foreground">Standard real-time streaming transport</p></div>
+									<Switch checked={transportConfig.sse} onCheckedChange={(v) => handleTransportToggle('sse', !!v)} disabled={transportSaving} />
+								</div>
+								<Separator />
+								<div class="flex items-center justify-between">
+									<div><p class="text-sm font-medium">WebSocket</p><p class="text-xs text-muted-foreground">Bidirectional real-time communication</p></div>
+									<Switch checked={transportConfig.websocket} onCheckedChange={(v) => handleTransportToggle('websocket', !!v)} disabled={transportSaving} />
+								</div>
+								<Separator />
+								<div class="flex items-center justify-between">
+									<div><p class="text-sm font-medium">Streamable HTTP</p><p class="text-xs text-muted-foreground">HTTP-based streaming for firewalled environments</p></div>
+									<Switch checked={transportConfig.streamableHttp} onCheckedChange={(v) => handleTransportToggle('streamableHttp', !!v)} disabled={transportSaving} />
+								</div>
+							</Card.Content>
+						</Card.Root>
+					{/if}
+				</Tabs.Content>
+			{/if}
 
 			{#if isAdmin}
 				<Tabs.Content value="users">

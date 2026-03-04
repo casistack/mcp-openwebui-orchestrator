@@ -4,7 +4,7 @@ import { createApp } from './app.js';
 const PORT = parseInt(process.env.MANAGER_PORT ?? process.env.PORT ?? '3001', 10);
 
 async function main() {
-  const { app, wsBroadcaster, serverRuntimeService, connectionManager } = await createApp({
+  const { app, wsBroadcaster, serverRuntimeService, runtimeModeManager, connectionManager } = await createApp({
     databaseUrl: process.env.DATABASE_URL,
     configPath: process.env.CLAUDE_CONFIG_PATH,
   });
@@ -22,7 +22,14 @@ async function main() {
     console.log(`[shutdown] Received ${signal}, shutting down...`);
 
     // Stop runtime processes first (kills MCPO/MCP-Bridge child processes)
-    if (serverRuntimeService) {
+    if (runtimeModeManager) {
+      try {
+        await runtimeModeManager.shutdown();
+        console.log('[shutdown] Runtime mode manager stopped');
+      } catch (err) {
+        console.error('[shutdown] Runtime shutdown error:', (err as Error).message);
+      }
+    } else if (serverRuntimeService) {
       try {
         await serverRuntimeService.shutdown();
         console.log('[shutdown] Runtime services stopped');
