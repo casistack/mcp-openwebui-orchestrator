@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex, unique } from 'drizzle-orm/sqlite-core';
 import { users } from './users';
 
 export const mcpServers = sqliteTable('mcp_servers', {
@@ -34,6 +34,8 @@ export const mcpServers = sqliteTable('mcp_servers', {
   runtimeLastError: text('runtime_last_error'),
   runtimeMode: text('runtime_mode').default('individual'),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(true),
+  // Source tracking
+  source: text('source').default('manual'), // 'manual' | 'config' | 'marketplace'
   // Ownership
   createdBy: text('created_by').references(() => users.id),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
@@ -61,3 +63,9 @@ export const serverEnvVars = sqliteTable('server_env_vars', {
 }, (table) => [
   uniqueIndex('server_env_unique').on(table.serverId, table.key),
 ]);
+
+export const configDismissedServers = sqliteTable('config_dismissed_servers', {
+  id: text('id').primaryKey(),
+  serverName: text('server_name').notNull().unique(),
+  dismissedAt: integer('dismissed_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});

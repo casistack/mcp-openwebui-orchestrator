@@ -98,10 +98,9 @@ export const appRouter = router({
       }),
   }),
 
-  // --- Config Reimport ---
+  // --- Config Management ---
   configImport: router({
     reimport: protectedProcedure.mutation(async ({ ctx }) => {
-      // Dynamically import config parser and re-import servers
       const { ConfigParser } = await import('../core/config-parser.js');
       const configPath = process.env.CLAUDE_CONFIG_PATH ?? '/config/claude_desktop_config.json';
       const parser = new ConfigParser(configPath);
@@ -130,6 +129,7 @@ export const appRouter = router({
             headers: server.headers,
             proxyType: server.proxyType,
             needsProxy: server.needsProxy,
+            source: 'config',
           });
           imported++;
         } catch {
@@ -139,6 +139,32 @@ export const appRouter = router({
 
       return { imported, skipped, failed, total: servers.length };
     }),
+
+    getConfig: protectedProcedure.query(async (): Promise<{ configPath: string; servers: Array<Record<string, unknown>>; raw: unknown }> => {
+      const { ConfigParser } = await import('../core/config-parser.js');
+      const configPath = process.env.CLAUDE_CONFIG_PATH ?? '/config/claude_desktop_config.json';
+      const parser = new ConfigParser(configPath);
+      const servers = await parser.getMCPServers();
+      const raw = await parser.loadConfig();
+      return { configPath, servers: servers as unknown as Array<Record<string, unknown>>, raw };
+    }),
+
+    getDismissed: protectedProcedure.query(async ({ ctx }) => {
+      const { configDismissedServers } = await import('@mcp-platform/db');
+      const results = await ctx.db.select().from(configDismissedServers);
+      return results;
+    }),
+
+    undismiss: protectedProcedure
+      .input(z.object({ serverName: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const { configDismissedServers, eq } = await import('@mcp-platform/db');
+        const all = await ctx.db.select().from(configDismissedServers);
+        const target = all.find((d: { serverName: string }) => d.serverName === input.serverName);
+        if (!target) return { ok: false };
+        await ctx.db.delete(configDismissedServers).where(eq(configDismissedServers.id, target.id));
+        return { ok: true };
+      }),
   }),
 
   // --- Namespaces ---

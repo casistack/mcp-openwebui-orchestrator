@@ -15,7 +15,7 @@
 	import ScrollArea from '$lib/components/ui/scroll-area/scroll-area.svelte';
 	import { Plus, Pencil, Trash2, Server, AlertCircle, Play, Square, RotateCcw, FileText } from '@lucide/svelte';
 
-	interface ServerItem { id: string; name: string; displayName: string; transport: string; status: string; command?: string; url?: string; proxyType?: string; needsProxy?: boolean; }
+	interface ServerItem { id: string; name: string; displayName: string; transport: string; status: string; command?: string; url?: string; proxyType?: string; needsProxy?: boolean; source?: string; }
 	interface Connection { serverId: string; status: string; toolCount: number; lastPingMs: number | null; lastError: string | null; }
 	interface RuntimeInfo { serverId: string; status: string; pid: number | null; port: number | null; proxyType: string | null; startedAt: string | null; restartCount: number; healthy: boolean; lastError: string | null; }
 	interface LogEntry { stream: string; message: string; createdAt: string | null; }
@@ -286,6 +286,7 @@
 								/>
 							</Table.Head>
 							<Table.Head>Name</Table.Head>
+							<Table.Head>Source</Table.Head>
 							<Table.Head>Transport</Table.Head>
 							<Table.Head>Connection</Table.Head>
 							{#if runtimeEnabled}
@@ -313,6 +314,7 @@
 									/>
 								</Table.Cell>
 								<Table.Cell class="font-mono text-xs font-medium"><a href="/servers/{server.id}" class="hover:underline text-primary">{server.displayName || server.name}</a></Table.Cell>
+								<Table.Cell><Badge variant={server.source === 'config' ? 'outline' : server.source === 'marketplace' ? 'default' : 'secondary'} class="text-[10px]">{server.source ?? 'manual'}</Badge></Table.Cell>
 								<Table.Cell><Badge variant="secondary">{server.transport}</Badge></Table.Cell>
 								<Table.Cell><Badge variant={status.variant}>{status.label}</Badge></Table.Cell>
 								{#if runtimeEnabled}

@@ -19,6 +19,7 @@ export interface CreateServerInput {
   networkPolicy?: string;
   isPublic?: boolean;
   createdBy?: string;
+  source?: 'manual' | 'config' | 'marketplace';
 }
 
 export interface UpdateServerInput {
@@ -78,6 +79,7 @@ export class ServerService {
       networkPolicy: input.networkPolicy ?? 'default',
       status: 'inactive',
       isPublic: input.isPublic ?? false,
+      source: input.source ?? 'manual',
       createdBy: input.createdBy ?? null,
       createdAt: now,
       updatedAt: now,
@@ -114,6 +116,18 @@ export class ServerService {
   async deleteServer(id: string) {
     const existing = await this.getServer(id);
     if (!existing) return false;
+
+    // If server was imported from config, dismiss it so it won't be re-imported
+    if (existing.source === 'config') {
+      try {
+        const { configDismissedServers } = await import('@mcp-platform/db');
+        await this.db.insert(configDismissedServers).values({
+          id: crypto.randomUUID(),
+          serverName: existing.name,
+          dismissedAt: new Date(),
+        });
+      } catch { /* already dismissed or constraint violation — fine */ }
+    }
 
     await this.db.delete(mcpServers).where(eq(mcpServers.id, id));
     return true;

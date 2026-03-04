@@ -339,15 +339,23 @@ async function autoImportServers(
     const count = await serverService.getServerCount();
     if (count > 0) return;
 
-    const path = configPath ?? process.env.CLAUDE_CONFIG_PATH ?? '/config/claude_desktop_config.json';
-    const parser = new ConfigParser(path);
+    // Check for dismissed servers (ones the user previously deleted)
+    const { configDismissedServers } = await import('@mcp-platform/db');
+    const dismissed = await db.select().from(configDismissedServers);
+    const dismissedNames = new Set(dismissed.map(d => d.serverName));
+
+    const cfgPath = configPath ?? process.env.CLAUDE_CONFIG_PATH ?? '/config/claude_desktop_config.json';
+    const parser = new ConfigParser(cfgPath);
     const servers = await parser.getMCPServers();
 
     if (servers.length === 0) return;
 
-    console.log(`Auto-importing ${servers.length} servers from Claude Desktop config...`);
+    const toImport = servers.filter(s => !dismissedNames.has(s.name || s.id));
+    if (toImport.length === 0) return;
 
-    for (const server of servers) {
+    console.log(`Auto-importing ${toImport.length} servers from Claude Desktop config (${dismissed.length} dismissed)...`);
+
+    for (const server of toImport) {
       try {
         await serverService.createServer({
           name: server.name || server.id,
@@ -359,6 +367,7 @@ async function autoImportServers(
           headers: server.headers,
           proxyType: server.proxyType,
           needsProxy: server.needsProxy,
+          source: 'config',
         });
         console.log(`  Imported: ${server.id}`);
       } catch (err) {
