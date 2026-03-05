@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
 	import * as Tabs from '$lib/components/ui/tabs';
@@ -8,7 +8,7 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { LogOut, AlertCircle, CheckCircle, Radio } from '@lucide/svelte';
+	import { LogOut, AlertCircle, CheckCircle, Radio, Loader2 } from '@lucide/svelte';
 	import { Switch } from '$lib/components/ui/switch';
 	import { trpc } from '$lib/trpc';
 
@@ -29,6 +29,7 @@
 	let runtimeMode = $state<RuntimeMode>('individual');
 	let runtimeAvailable = $state(false);
 	let modeSwitching = $state(false);
+	let switchingToMode = $state<RuntimeMode | null>(null);
 	let transportConfig = $state({ sse: true, websocket: true, streamableHttp: true });
 	let transportSaving = $state(false);
 
@@ -65,19 +66,54 @@
 		} catch { /* runtime mode not available */ }
 	}
 
+	let switchPollTimer = $state<ReturnType<typeof setInterval> | null>(null);
+
 	async function handleModeSwitch(newMode: RuntimeMode) {
 		if (newMode === runtimeMode || modeSwitching) return;
 		modeSwitching = true;
+		switchingToMode = newMode;
 		error = null;
 		success = null;
 		try {
 			await trpc.runtimeMode.switchMode.mutate({ mode: newMode });
-			runtimeMode = newMode;
-			success = `Runtime mode switched to ${newMode}`;
+			// Start polling for completion
+			pollSwitchStatus();
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to switch mode';
+			modeSwitching = false;
+			switchingToMode = null;
 		}
-		modeSwitching = false;
+	}
+
+	function pollSwitchStatus() {
+		if (switchPollTimer) clearInterval(switchPollTimer);
+		switchPollTimer = setInterval(async () => {
+			try {
+				const status = await trpc.runtimeMode.status.query() as {
+					mode: RuntimeMode; switching: boolean; switchingTo: RuntimeMode | null; switchError: string | null;
+				} | null;
+				if (!status) return;
+				runtimeMode = status.mode;
+				if (!status.switching) {
+					// Switch complete
+					if (switchPollTimer) { clearInterval(switchPollTimer); switchPollTimer = null; }
+					modeSwitching = false;
+					switchingToMode = null;
+					if (status.switchError) {
+						error = `Mode switch failed: ${status.switchError}`;
+					} else {
+						success = `Runtime mode switched to ${status.mode}`;
+						// Refresh transport config for the new mode
+						if (status.mode === 'multi-transport') {
+							const tc = await trpc.runtimeMode.transportConfig.query() as typeof transportConfig;
+							transportConfig = tc;
+						}
+					}
+				}
+			} catch {
+				// Network error during poll — keep trying
+			}
+		}, 1500);
 	}
 
 	async function handleTransportToggle(transport: 'sse' | 'websocket' | 'streamableHttp', enabled: boolean) {
@@ -94,6 +130,7 @@
 	}
 
 	onMount(load);
+	onDestroy(() => { if (switchPollTimer) clearInterval(switchPollTimer); });
 
 	async function changeRole(userId: string, roleName: string) {
 		success = null; error = null;
@@ -202,18 +239,24 @@
 						<Card.Content class="space-y-4">
 							<div class="grid gap-3">
 								{#each runtimeModes as mode}
+									{@const isActive = runtimeMode === mode.id && !modeSwitching}
+									{@const isSwitchingTo = modeSwitching && mode.id === switchingToMode}
 									<button
-										class="flex items-start gap-3 p-4 rounded-lg border text-left transition-colors {runtimeMode === mode.id ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/50'}"
+										class="flex items-start gap-3 p-4 rounded-lg border text-left transition-colors {isActive ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/50'} {modeSwitching ? 'opacity-60 cursor-not-allowed' : ''}"
 										onclick={() => handleModeSwitch(mode.id)}
 										disabled={modeSwitching}
 									>
 										<div class="mt-0.5">
-											<Radio class="size-4 {runtimeMode === mode.id ? 'text-primary' : 'text-muted-foreground'}" />
+											{#if isSwitchingTo}
+												<Loader2 class="size-4 text-primary animate-spin" />
+											{:else}
+												<Radio class="size-4 {isActive ? 'text-primary' : 'text-muted-foreground'}" />
+											{/if}
 										</div>
 										<div class="flex-1">
 											<div class="flex items-center gap-2">
 												<span class="font-medium text-sm">{mode.label}</span>
-												{#if runtimeMode === mode.id}
+												{#if isActive}
 													<Badge variant="default" class="text-xs">Active</Badge>
 												{/if}
 											</div>
@@ -223,7 +266,13 @@
 								{/each}
 							</div>
 							{#if modeSwitching}
-								<p class="text-xs text-muted-foreground">Switching mode... This may take a moment as processes are stopped and restarted.</p>
+								<div class="flex items-center gap-2 p-3 rounded-lg border border-primary/30 bg-primary/5">
+									<Loader2 class="size-4 text-primary animate-spin" />
+									<div>
+										<p class="text-sm font-medium">Switching runtime mode...</p>
+										<p class="text-xs text-muted-foreground">Stopping current processes and starting new ones. The UI will update when ready.</p>
+									</div>
+								</div>
 							{/if}
 						</Card.Content>
 					</Card.Root>

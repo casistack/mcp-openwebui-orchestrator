@@ -1110,8 +1110,9 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const mm = ctx.services.runtimeModeManager;
         if (!mm) throw new Error('Runtime mode manager not available');
+        // switchMode is fire-and-forget — returns immediately, switches in background
         await mm.switchMode(input.mode);
-        return { mode: mm.getMode() };
+        return { mode: input.mode, switching: true };
       }),
 
     status: protectedProcedure.query(({ ctx }) => {

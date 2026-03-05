@@ -9,6 +9,9 @@ export type RuntimeMode = 'individual' | 'unified' | 'multi-transport';
 
 export interface RuntimeModeStatus {
   mode: RuntimeMode;
+  switching: boolean;
+  switchingTo: RuntimeMode | null;
+  switchError: string | null;
   individual?: {
     running: number;
     total: number;
@@ -27,6 +30,9 @@ export interface RuntimeModeStatus {
 
 export class RuntimeModeManager extends EventEmitter {
   private currentMode: RuntimeMode = 'individual';
+  private _switching = false;
+  private _switchingTo: RuntimeMode | null = null;
+  private _switchError: string | null = null;
 
   constructor(
     private individualService: ServerRuntimeService,
@@ -57,22 +63,41 @@ export class RuntimeModeManager extends EventEmitter {
 
   async switchMode(newMode: RuntimeMode): Promise<void> {
     if (newMode === this.currentMode) return;
+    if (this._switching) throw new Error('A mode switch is already in progress');
 
-    console.log(`[mode-manager] Switching from ${this.currentMode} to ${newMode}`);
+    this._switching = true;
+    this._switchingTo = newMode;
+    this._switchError = null;
 
-    // Stop current mode
-    await this.stopCurrentMode();
-
-    // Update state
     const previousMode = this.currentMode;
-    this.currentMode = newMode;
-    this.persistConfig();
+    console.log(`[mode-manager] Switching from ${previousMode} to ${newMode}`);
 
-    // Start new mode
-    await this.startCurrentMode();
+    // Fire-and-forget: perform the actual stop/start in the background
+    this.performSwitch(previousMode, newMode).catch(() => {
+      // Error already captured in _switchError by performSwitch
+    });
+  }
 
-    this.emit('mode:switched', { from: previousMode, to: newMode });
-    console.log(`[mode-manager] Mode switched to ${newMode}`);
+  private async performSwitch(previousMode: RuntimeMode, newMode: RuntimeMode): Promise<void> {
+    try {
+      await this.stopCurrentMode();
+
+      this.currentMode = newMode;
+      this.persistConfig();
+
+      await this.startCurrentMode();
+
+      this._switchError = null;
+      this.emit('mode:switched', { from: previousMode, to: newMode });
+      console.log(`[mode-manager] Mode switched to ${newMode}`);
+    } catch (err) {
+      this._switchError = (err as Error).message;
+      console.error(`[mode-manager] Switch to ${newMode} failed: ${this._switchError}`);
+      this.emit('mode:switch-error', { from: previousMode, to: newMode, error: this._switchError });
+    } finally {
+      this._switching = false;
+      this._switchingTo = null;
+    }
   }
 
   async start(): Promise<void> {
@@ -138,8 +163,17 @@ export class RuntimeModeManager extends EventEmitter {
     }
   }
 
+  isSwitching(): boolean {
+    return this._switching;
+  }
+
   getStatus(): RuntimeModeStatus {
-    const status: RuntimeModeStatus = { mode: this.currentMode };
+    const status: RuntimeModeStatus = {
+      mode: this.currentMode,
+      switching: this._switching,
+      switchingTo: this._switchingTo,
+      switchError: this._switchError,
+    };
 
     switch (this.currentMode) {
       case 'individual':
