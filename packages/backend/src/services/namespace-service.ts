@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { namespaces, namespaceServers, mcpServers } from '@mcp-platform/db';
+import { namespaces, namespaceServers, mcpServers, eq, and } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 export interface CreateNamespaceInput {
@@ -68,13 +68,7 @@ export class NamespaceService {
     if (input.description !== undefined) cleanUpdates.description = input.description;
     if (input.isPublic !== undefined) cleanUpdates.isPublic = input.isPublic;
 
-    const sets = Object.keys(cleanUpdates)
-      .map(k => `${this.camelToSnake(k)} = ?`)
-      .join(', ');
-    const values = Object.values(cleanUpdates);
-
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`UPDATE namespaces SET ${sets} WHERE id = ?`, ...values, id);
+    await this.db.update(namespaces).set(cleanUpdates).where(eq(namespaces.id, id));
 
     return { ...existing, ...cleanUpdates };
   }
@@ -84,8 +78,7 @@ export class NamespaceService {
     if (!existing) return false;
 
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM namespaces WHERE id = ?`, id);
+      await this.db.delete(namespaces).where(eq(namespaces.id, id));
     } catch {
       return false;
     }
@@ -108,12 +101,9 @@ export class NamespaceService {
 
   async removeServer(namespaceId: string, serverId: string) {
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(
-          `DELETE FROM namespace_servers WHERE namespace_id = ? AND server_id = ?`,
-          namespaceId,
-          serverId,
-        );
+      await this.db.delete(namespaceServers).where(
+        and(eq(namespaceServers.namespaceId, namespaceId), eq(namespaceServers.serverId, serverId))
+      );
       return true;
     } catch {
       return false;
@@ -134,7 +124,4 @@ export class NamespaceService {
     return results.length;
   }
 
-  private camelToSnake(str: string): string {
-    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-  }
 }

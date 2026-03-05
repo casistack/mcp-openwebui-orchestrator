@@ -115,11 +115,7 @@ describe('ApiKeyService', () => {
       const created = await service.createApiKey({ userId: 'user-1', name: 'Track Usage' });
 
       await service.validateApiKey(created.rawKey);
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE api_keys SET last_used_at'),
-        expect.any(Date),
-        created.id,
-      );
+      expect(db.update).toHaveBeenCalled();
     });
   });
 
@@ -151,11 +147,7 @@ describe('ApiKeyService', () => {
 
       const result = await service.revokeApiKey(created.id, 'user-1');
       expect(result).toBe(true);
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE api_keys SET is_active'),
-        false,
-        created.id,
-      );
+      expect(db.update).toHaveBeenCalled();
     });
 
     it('should not revoke a key owned by different user', async () => {
@@ -177,10 +169,7 @@ describe('ApiKeyService', () => {
 
       const result = await service.deleteApiKey(created.id, 'user-1');
       expect(result).toBe(true);
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('DELETE FROM api_keys'),
-        created.id,
-      );
+      expect(db.delete).toHaveBeenCalled();
     });
 
     it('should not delete a key owned by different user', async () => {

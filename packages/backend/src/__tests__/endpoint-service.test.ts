@@ -161,10 +161,7 @@ describe('EndpointService', () => {
       });
 
       expect(await service.deleteEndpoint(created.id)).toBe(true);
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('DELETE FROM endpoints'),
-        created.id,
-      );
+      expect(db.delete).toHaveBeenCalled();
     });
   });
 

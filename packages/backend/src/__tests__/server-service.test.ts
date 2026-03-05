@@ -133,7 +133,7 @@ describe('ServerService', () => {
       expect(result).not.toBeNull();
       expect(result!.description).toBe('Updated description');
       expect(result!.status).toBe('active');
-      expect(db.run).toHaveBeenCalled();
+      expect(db.update).toHaveBeenCalled();
     });
 
     it('should skip undefined values in updates', async () => {
@@ -144,10 +144,8 @@ describe('ServerService', () => {
       });
 
       expect(result).not.toBeNull();
-      // The run call SQL should only contain the fields that were set
-      const runCall = db.run.mock.calls[0];
-      expect(runCall[0]).toContain('description');
-      expect(runCall[0]).toContain('updated_at');
+      expect(result!.description).toBe('only this');
+      expect(db.update).toHaveBeenCalled();
     });
   });
 

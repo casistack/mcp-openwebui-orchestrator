@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { serverEnvVars } from '@mcp-platform/db';
+import { serverEnvVars, eq } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -198,15 +198,12 @@ export class SecretsService {
         // Re-encrypt with new key
         const encrypted = this.encrypt(plaintext);
 
-        (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-          .run?.(
-            `UPDATE server_env_vars SET value = ?, iv = ?, tag = ?, updated_at = ? WHERE id = ?`,
-            encrypted.ciphertext,
-            encrypted.iv,
-            encrypted.tag,
-            new Date(),
-            entry.id,
-          );
+        await this.db.update(serverEnvVars).set({
+          value: encrypted.ciphertext,
+          iv: encrypted.iv,
+          tag: encrypted.tag,
+          updatedAt: new Date(),
+        }).where(eq(serverEnvVars.id, entry.id));
 
         rotated++;
       } catch {

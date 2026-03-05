@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { toolConfigs } from '@mcp-platform/db';
+import { toolConfigs, eq } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 export interface SetToolConfigInput {
@@ -48,15 +48,7 @@ export class ToolConfigService {
       if (input.description !== undefined) cleanUpdates.description = input.description;
       if (input.annotations !== undefined) cleanUpdates.annotations = input.annotations;
 
-      const sets = Object.keys(cleanUpdates)
-        .map(k => `${this.camelToSnake(k)} = ?`)
-        .join(', ');
-      const values = Object.values(cleanUpdates).map(v =>
-        typeof v === 'object' && v !== null && !(v instanceof Date) ? JSON.stringify(v) : v,
-      );
-
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`UPDATE tool_configs SET ${sets} WHERE id = ?`, ...values, existing.id);
+      await this.db.update(toolConfigs).set(cleanUpdates).where(eq(toolConfigs.id, existing.id));
 
       return { ...existing, ...cleanUpdates };
     }
@@ -86,8 +78,7 @@ export class ToolConfigService {
     if (!existing) return false;
 
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM tool_configs WHERE id = ?`, id);
+      await this.db.delete(toolConfigs).where(eq(toolConfigs.id, id));
     } catch {
       return false;
     }
@@ -102,7 +93,4 @@ export class ToolConfigService {
     return results;
   }
 
-  private camelToSnake(str: string): string {
-    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-  }
 }

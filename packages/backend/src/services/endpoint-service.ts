@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { endpoints } from '@mcp-platform/db';
+import { endpoints, eq } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 export interface CreateEndpointInput {
@@ -81,15 +81,7 @@ export class EndpointService {
     if (input.oauthConfig !== undefined) cleanUpdates.oauthConfig = input.oauthConfig;
     if (input.rateLimit !== undefined) cleanUpdates.rateLimit = input.rateLimit;
 
-    const sets = Object.keys(cleanUpdates)
-      .map(k => `${this.camelToSnake(k)} = ?`)
-      .join(', ');
-    const values = Object.values(cleanUpdates).map(v =>
-      typeof v === 'object' && v !== null && !(v instanceof Date) ? JSON.stringify(v) : v,
-    );
-
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`UPDATE endpoints SET ${sets} WHERE id = ?`, ...values, id);
+    await this.db.update(endpoints).set(cleanUpdates).where(eq(endpoints.id, id));
 
     return { ...existing, ...cleanUpdates };
   }
@@ -99,8 +91,7 @@ export class EndpointService {
     if (!existing) return false;
 
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM endpoints WHERE id = ?`, id);
+      await this.db.delete(endpoints).where(eq(endpoints.id, id));
     } catch {
       return false;
     }
@@ -112,7 +103,4 @@ export class EndpointService {
     return results.length;
   }
 
-  private camelToSnake(str: string): string {
-    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-  }
 }

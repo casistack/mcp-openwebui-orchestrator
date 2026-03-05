@@ -120,7 +120,7 @@ describe('NamespaceService', () => {
       expect(result).not.toBeNull();
       expect(result!.name).toBe('Updated Name');
       expect(result!.slug).toBe('updated-name');
-      expect(db.run).toHaveBeenCalled();
+      expect(db.update).toHaveBeenCalled();
     });
 
     it('should update description without changing name', async () => {
@@ -151,10 +151,7 @@ describe('NamespaceService', () => {
 
       const result = await service.deleteNamespace(created.id);
       expect(result).toBe(true);
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('DELETE FROM namespaces'),
-        created.id,
-      );
+      expect(db.delete).toHaveBeenCalled();
     });
   });
 
@@ -182,11 +179,7 @@ describe('NamespaceService', () => {
 
       const result = await service.removeServer(ns.id, 'server-1');
       expect(result).toBe(true);
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('DELETE FROM namespace_servers'),
-        ns.id,
-        'server-1',
-      );
+      expect(db.delete).toHaveBeenCalled();
     });
 
     it('listServers should return servers in namespace', async () => {

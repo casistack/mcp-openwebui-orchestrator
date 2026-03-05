@@ -15,12 +15,16 @@ function createMockDb(recordCounts: { health: number; runtime: number; audit: nu
         return Promise.resolve([]);
       }),
     })),
-    run: jest.fn<() => any>().mockImplementation(() => {
-      // Simulate deletion by reducing counts
-      counts.health = 0;
-      counts.runtime = 0;
-      counts.audit = 0;
-    }),
+    delete: jest.fn<() => any>().mockImplementation(() => ({
+      where: jest.fn<() => any>().mockImplementation(() => {
+        // Simulate deletion by reducing counts
+        counts.health = 0;
+        counts.runtime = 0;
+        counts.audit = 0;
+        return Promise.resolve();
+      }),
+    })),
+    run: jest.fn<() => any>(),
   } as any;
 }
 
@@ -73,7 +77,9 @@ describe('LogRotationService', () => {
         select: jest.fn<() => any>().mockImplementation(() => ({
           from: jest.fn<() => any>().mockImplementation(() => Promise.reject(new Error('no such table'))),
         })),
-        run: jest.fn<() => any>(),
+        delete: jest.fn<() => any>().mockImplementation(() => ({
+          where: jest.fn<() => any>().mockImplementation(() => Promise.resolve()),
+        })),
       } as any;
 
       service = new LogRotationService(errorDb);

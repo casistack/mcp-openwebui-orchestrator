@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { apiKeys } from '@mcp-platform/db';
+import { apiKeys, eq } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 export interface CreateApiKeyInput {
@@ -58,8 +58,7 @@ export class ApiKeyService {
 
     // Update last used timestamp
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`UPDATE api_keys SET last_used_at = ? WHERE id = ?`, new Date(), key.id);
+      await this.db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id));
     } catch {
       // Non-critical - continue even if update fails
     }
@@ -92,8 +91,7 @@ export class ApiKeyService {
     if (!key) return false;
 
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`UPDATE api_keys SET is_active = ? WHERE id = ?`, false, id);
+      await this.db.update(apiKeys).set({ isActive: false }).where(eq(apiKeys.id, id));
     } catch {
       return false;
     }
@@ -106,8 +104,7 @@ export class ApiKeyService {
     if (!key) return false;
 
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM api_keys WHERE id = ?`, id);
+      await this.db.delete(apiKeys).where(eq(apiKeys.id, id));
     } catch {
       return false;
     }

@@ -72,14 +72,7 @@ describe('ToolConfigService', () => {
         displayName: 'Renamed Search',
       });
 
-      // Should have found existing and called run for UPDATE
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE tool_configs SET'),
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-        created.id,
-      );
+      expect(db.update).toHaveBeenCalled();
       expect(updated.enabled).toBe(false);
       expect(updated.displayName).toBe('Renamed Search');
     });
@@ -141,10 +134,7 @@ describe('ToolConfigService', () => {
       });
 
       expect(await service.deleteToolConfig(created.id)).toBe(true);
-      expect(db.run).toHaveBeenCalledWith(
-        expect.stringContaining('DELETE FROM tool_configs'),
-        created.id,
-      );
+      expect(db.delete).toHaveBeenCalled();
     });
   });
 

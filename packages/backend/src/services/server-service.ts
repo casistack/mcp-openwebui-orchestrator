@@ -100,16 +100,8 @@ export class ServerService {
       }
     }
 
-    // Use run() for raw SQL to avoid cross-package type conflicts
-    const sets = Object.keys(cleanUpdates)
-      .map(k => `${this.camelToSnake(k)} = ?`)
-      .join(', ');
-    const values = Object.values(cleanUpdates);
+    await this.db.update(mcpServers).set(cleanUpdates).where(eq(mcpServers.id, id));
 
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`UPDATE mcp_servers SET ${sets} WHERE id = ?`, ...values, id);
-
-    // Fallback: if run isn't available, just return merged
     return { ...existing, ...cleanUpdates };
   }
 
@@ -171,7 +163,4 @@ export class ServerService {
     return results.length;
   }
 
-  private camelToSnake(str: string): string {
-    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-  }
 }

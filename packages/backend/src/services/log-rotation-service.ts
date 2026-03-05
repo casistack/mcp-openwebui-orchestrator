@@ -1,6 +1,5 @@
 import type { AppDatabase } from '@mcp-platform/db';
-import { healthRecords, serverRuntimeLogs, auditLogs } from '@mcp-platform/db';
-import { sql } from '@mcp-platform/db';
+import { healthRecords, serverRuntimeLogs, auditLogs, lt } from '@mcp-platform/db';
 
 export interface RetentionConfig {
   healthRecordsDays: number;
@@ -53,30 +52,27 @@ export class LogRotationService {
 
     // Health records
     try {
-      const cutoff = this.cutoffTimestamp(this.config.healthRecordsDays);
+      const cutoff = this.cutoffDate(this.config.healthRecordsDays);
       const before = await this.db.select().from(healthRecords);
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM health_records WHERE checked_at < ?`, cutoff);
+      await this.db.delete(healthRecords).where(lt(healthRecords.checkedAt, cutoff));
       const after = await this.db.select().from(healthRecords);
       results.healthRecords = before.length - after.length;
     } catch { /* table may not exist */ }
 
     // Runtime logs
     try {
-      const cutoff = this.cutoffTimestamp(this.config.runtimeLogsDays);
+      const cutoff = this.cutoffDate(this.config.runtimeLogsDays);
       const before = await this.db.select().from(serverRuntimeLogs);
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM server_runtime_logs WHERE created_at < ?`, cutoff);
+      await this.db.delete(serverRuntimeLogs).where(lt(serverRuntimeLogs.createdAt, cutoff));
       const after = await this.db.select().from(serverRuntimeLogs);
       results.runtimeLogs = before.length - after.length;
     } catch { /* table may not exist */ }
 
     // Audit logs
     try {
-      const cutoff = this.cutoffTimestamp(this.config.auditLogsDays);
+      const cutoff = this.cutoffDate(this.config.auditLogsDays);
       const before = await this.db.select().from(auditLogs);
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM audit_logs WHERE created_at < ?`, cutoff);
+      await this.db.delete(auditLogs).where(lt(auditLogs.createdAt, cutoff));
       const after = await this.db.select().from(auditLogs);
       results.auditLogs = before.length - after.length;
     } catch { /* table may not exist */ }
@@ -92,7 +88,7 @@ export class LogRotationService {
     return { ...this.config };
   }
 
-  private cutoffTimestamp(days: number): number {
-    return Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+  private cutoffDate(days: number): Date {
+    return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   }
 }

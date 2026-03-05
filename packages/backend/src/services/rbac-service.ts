@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { roles, permissions, rolePermissions, users } from '@mcp-platform/db';
+import { roles, permissions, rolePermissions, users, eq } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
 // Permission format: "resource.action" e.g. "servers.read", "namespaces.write", "admin.users"
@@ -191,8 +191,10 @@ export class RBACService {
     if (!role) return false;
 
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`UPDATE users SET role_id = ?, updated_at = ? WHERE id = ?`, role.id, new Date(), userId);
+      await this.db.update(users).set({
+        roleId: role.id,
+        updatedAt: new Date(),
+      }).where(eq(users.id, userId));
     } catch {
       return false;
     }

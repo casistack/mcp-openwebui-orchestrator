@@ -36,6 +36,7 @@ export const mockTables = {
   desc: (...args: unknown[]) => args,
   and: (...args: unknown[]) => args,
   gte: (...args: unknown[]) => args,
+  lt: (...args: unknown[]) => args,
   count: (...args: unknown[]) => args,
 };
 
@@ -44,8 +45,8 @@ type TableRef = { __table: string };
 export interface MockDatabase {
   select: () => { from: (table: TableRef) => Promise<unknown[]> };
   insert: (table: TableRef) => { values: (row: unknown) => { run: () => void } & Promise<void> };
-  update: (table: TableRef) => { set: (data: unknown) => { where: (cond: unknown) => { run: () => void } } };
-  delete: (table: TableRef) => { where: (cond: unknown) => Promise<{ changes: number }> };
+  update: jest.Mock<(table: TableRef) => { set: (data: unknown) => { where: (cond: unknown) => Promise<void> } }>;
+  delete: jest.Mock<(table: TableRef) => { where: (cond: unknown) => Promise<{ changes: number }> }>;
   run: jest.Mock<(...args: unknown[]) => void>;
   // Test helpers
   _getTable: (name: string) => unknown[];
@@ -86,17 +87,15 @@ export function createMockDatabase(): MockDatabase {
       },
     }),
 
-    update: (_table: TableRef) => ({
+    update: jest.fn((_table: TableRef) => ({
       set: (_data: unknown) => ({
-        where: (_cond: unknown) => ({
-          run: () => {},
-        }),
+        where: (_cond: unknown) => Promise.resolve(),
       }),
-    }),
+    })) as MockDatabase['update'],
 
-    delete: (_table: TableRef) => ({
+    delete: jest.fn((_table: TableRef) => ({
       where: (_cond: unknown) => Promise.resolve({ changes: 1 }),
-    }),
+    })) as MockDatabase['delete'],
 
     run: jest.fn(),
   };
