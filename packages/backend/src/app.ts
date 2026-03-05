@@ -186,6 +186,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
     legacyHeaders: false,
     keyGenerator: (req) => req.headers['x-forwarded-for'] as string ?? req.ip ?? 'unknown',
     message: { error: 'Too many admin requests, please try again later' },
+    validate: { keyGeneratorIpFallback: false },
   });
   app.use('/api/v1/admin', adminLimiter, createAdminRouter(auth, {
     rbacService,
@@ -216,6 +217,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
     keyGenerator: (req) => req.headers['x-forwarded-for'] as string ?? req.ip ?? 'unknown',
     skip: (req) => req.method === 'GET', // Only limit mutations (POST)
     message: { error: 'Too many requests, please try again later' },
+    validate: { keyGeneratorIpFallback: false },
   });
   const trpcReadLimiter = rateLimit({
     windowMs: 60_000,
@@ -225,6 +227,7 @@ export async function createApp(config: AppConfig = {}): Promise<{
     keyGenerator: (req) => req.headers['x-forwarded-for'] as string ?? req.ip ?? 'unknown',
     skip: (req) => req.method !== 'GET', // Only limit reads (GET)
     message: { error: 'Too many requests, please try again later' },
+    validate: { keyGeneratorIpFallback: false },
   });
   app.use('/api/trpc', trpcMutationLimiter, trpcReadLimiter);
 
