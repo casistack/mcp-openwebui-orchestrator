@@ -85,24 +85,22 @@ export class ConfigSourcesService {
     const existing = await this.getSource(id);
     if (!existing) return null;
 
-    const updates: Record<string, unknown> = { updatedAt: new Date() };
-    for (const [key, value] of Object.entries(input)) {
-      if (value !== undefined) updates[key] = value;
-    }
+    const updates: Record<string, unknown> = {};
+    if (input.name !== undefined) updates.name = input.name;
+    if (input.location !== undefined) updates.location = input.location;
+    if (input.enabled !== undefined) updates.enabled = input.enabled;
+    if (input.priority !== undefined) updates.priority = input.priority;
+    if (input.autoSync !== undefined) updates.autoSync = input.autoSync;
+    if (input.syncIntervalMinutes !== undefined) updates.syncIntervalMinutes = input.syncIntervalMinutes;
+    updates.updatedAt = new Date();
 
-    const sets = Object.keys(updates)
-      .map(k => `${this.camelToSnake(k)} = ?`)
-      .join(', ');
-    const values = Object.values(updates);
-
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`UPDATE config_sources SET ${sets} WHERE id = ?`, ...values, id);
+    await this.db.update(configSources).set(updates).where(eq(configSources.id, id));
 
     return { ...existing, ...updates };
   }
 
   async deleteSource(id: string) {
-    const { configSources, sourceServers, eq } = await import('@mcp-platform/db');
+    const { configSources, eq } = await import('@mcp-platform/db');
     const source = await this.getSource(id);
     if (!source) return false;
 
@@ -144,20 +142,17 @@ export class ConfigSourcesService {
         const existingSS = existingKeys.get(parsed.id);
 
         if (existingSS) {
-          // Update config if changed
           if (existingSS.serverConfig !== config) {
-            (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-              .run?.(
-                `UPDATE source_servers SET server_config = ?, server_name = ?, updated_at = ? WHERE id = ?`,
-                config, parsed.name, Math.floor(Date.now() / 1000), existingSS.id,
-              );
+            await this.db.update(sourceServers).set({
+              serverConfig: config,
+              serverName: parsed.name,
+              updatedAt: new Date(),
+            }).where(eq(sourceServers.id, existingSS.id));
             updated++;
           }
         } else {
-          // New server discovered
-          const ssId = crypto.randomUUID();
           await this.db.insert(sourceServers).values({
-            id: ssId,
+            id: crypto.randomUUID(),
             sourceId: id,
             serverKey: parsed.id,
             serverName: parsed.name,
@@ -179,11 +174,11 @@ export class ConfigSourcesService {
               await this.serverService.deleteServer(ss.importedServerId);
             } catch { /* may already be deleted */ }
           }
-          (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-            .run?.(
-              `UPDATE source_servers SET status = 'removed', imported_server_id = NULL, updated_at = ? WHERE id = ?`,
-              Math.floor(Date.now() / 1000), ss.id,
-            );
+          await this.db.update(sourceServers).set({
+            status: 'removed',
+            importedServerId: null,
+            updatedAt: new Date(),
+          }).where(eq(sourceServers.id, ss.id));
           removed++;
         }
       }
@@ -200,19 +195,21 @@ export class ConfigSourcesService {
       }
 
       // Update sync status
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(
-          `UPDATE config_sources SET last_sync_at = ?, last_sync_status = 'success', last_sync_error = NULL, updated_at = ? WHERE id = ?`,
-          Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), id,
-        );
+      await this.db.update(configSources).set({
+        lastSyncAt: new Date(),
+        lastSyncStatus: 'success',
+        lastSyncError: null,
+        updatedAt: new Date(),
+      }).where(eq(configSources.id, id));
 
       return { activated, updated, removed, total: parsedServers.length };
     } catch (err) {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(
-          `UPDATE config_sources SET last_sync_at = ?, last_sync_status = 'error', last_sync_error = ?, updated_at = ? WHERE id = ?`,
-          Math.floor(Date.now() / 1000), (err as Error).message, Math.floor(Date.now() / 1000), id,
-        );
+      await this.db.update(configSources).set({
+        lastSyncAt: new Date(),
+        lastSyncStatus: 'error',
+        lastSyncError: (err as Error).message,
+        updatedAt: new Date(),
+      }).where(eq(configSources.id, id));
       throw err;
     }
   }
@@ -235,7 +232,7 @@ export class ConfigSourcesService {
   }
 
   async activateServer(sourceServerId: string) {
-    const { sourceServers } = await import('@mcp-platform/db');
+    const { sourceServers, eq } = await import('@mcp-platform/db');
     const allSS = await this.db.select().from(sourceServers);
     const ss = allSS.find(s => s.id === sourceServerId);
     if (!ss) throw new Error('Source server not found');
@@ -255,17 +252,17 @@ export class ConfigSourcesService {
       source: 'config',
     });
 
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(
-        `UPDATE source_servers SET imported_server_id = ?, status = 'active', updated_at = ? WHERE id = ?`,
-        server.id, Math.floor(Date.now() / 1000), sourceServerId,
-      );
+    await this.db.update(sourceServers).set({
+      importedServerId: server.id,
+      status: 'active',
+      updatedAt: new Date(),
+    }).where(eq(sourceServers.id, sourceServerId));
 
     return server;
   }
 
   async deactivateServer(sourceServerId: string) {
-    const { sourceServers } = await import('@mcp-platform/db');
+    const { sourceServers, eq } = await import('@mcp-platform/db');
     const allSS = await this.db.select().from(sourceServers);
     const ss = allSS.find(s => s.id === sourceServerId);
     if (!ss) throw new Error('Source server not found');
@@ -276,26 +273,25 @@ export class ConfigSourcesService {
       } catch { /* may already be deleted */ }
     }
 
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(
-        `UPDATE source_servers SET imported_server_id = NULL, status = 'removed', updated_at = ? WHERE id = ?`,
-        Math.floor(Date.now() / 1000), sourceServerId,
-      );
+    await this.db.update(sourceServers).set({
+      importedServerId: null,
+      status: 'removed',
+      updatedAt: new Date(),
+    }).where(eq(sourceServers.id, sourceServerId));
 
     return true;
   }
 
   async toggleServer(sourceServerId: string, enabled: boolean) {
-    const { sourceServers } = await import('@mcp-platform/db');
+    const { sourceServers, eq } = await import('@mcp-platform/db');
     const allSS = await this.db.select().from(sourceServers);
     const ss = allSS.find(s => s.id === sourceServerId);
     if (!ss) throw new Error('Source server not found');
 
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(
-        `UPDATE source_servers SET enabled = ?, updated_at = ? WHERE id = ?`,
-        enabled ? 1 : 0, Math.floor(Date.now() / 1000), sourceServerId,
-      );
+    await this.db.update(sourceServers).set({
+      enabled,
+      updatedAt: new Date(),
+    }).where(eq(sourceServers.id, sourceServerId));
 
     if (enabled && !ss.importedServerId && ss.status !== 'removed') {
       await this.activateServer(sourceServerId);
@@ -307,13 +303,12 @@ export class ConfigSourcesService {
   }
 
   async toggleSource(id: string, enabled: boolean) {
-    const { sourceServers } = await import('@mcp-platform/db');
+    const { configSources, sourceServers, eq } = await import('@mcp-platform/db');
 
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(
-        `UPDATE config_sources SET enabled = ?, updated_at = ? WHERE id = ?`,
-        enabled ? 1 : 0, Math.floor(Date.now() / 1000), id,
-      );
+    await this.db.update(configSources).set({
+      enabled,
+      updatedAt: new Date(),
+    }).where(eq(configSources.id, id));
 
     const allSS = await this.db.select().from(sourceServers);
     const sourceServerList = allSS.filter(s => s.sourceId === id);
@@ -330,13 +325,13 @@ export class ConfigSourcesService {
   }
 
   async reorderSources(orderedIds: string[]) {
+    const { configSources, eq } = await import('@mcp-platform/db');
     for (let i = 0; i < orderedIds.length; i++) {
       const priority = orderedIds.length - i; // highest priority first
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(
-          `UPDATE config_sources SET priority = ?, updated_at = ? WHERE id = ?`,
-          priority, Math.floor(Date.now() / 1000), orderedIds[i],
-        );
+      await this.db.update(configSources).set({
+        priority,
+        updatedAt: new Date(),
+      }).where(eq(configSources.id, orderedIds[i]));
     }
     return true;
   }
@@ -453,9 +448,5 @@ export class ConfigSourcesService {
     }
 
     throw new Error(`Unsupported source type: ${type}`);
-  }
-
-  private camelToSnake(str: string): string {
-    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
   }
 }

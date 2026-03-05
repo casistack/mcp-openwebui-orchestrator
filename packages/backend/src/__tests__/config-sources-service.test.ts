@@ -24,6 +24,11 @@ function createMockDb() {
         return Promise.resolve(data[tableName] ?? []);
       }),
     })),
+    update: jest.fn<() => any>().mockImplementation((table: any) => ({
+      set: jest.fn<() => any>().mockImplementation(() => ({
+        where: jest.fn<() => any>().mockImplementation(() => Promise.resolve()),
+      })),
+    })),
     delete: jest.fn<() => any>().mockImplementation((table: any) => ({
       where: jest.fn<() => any>().mockImplementation(() => {
         const tableName = table?.[Symbol.for('drizzle:Name')] ?? 'unknown';
@@ -188,10 +193,10 @@ describe('ConfigSourcesService', () => {
   });
 
   describe('toggleSource', () => {
-    it('should call run to update enabled status', async () => {
+    it('should update enabled status via Drizzle update', async () => {
       const source = await service.createSource({ name: 'Toggle', type: 'file', location: '/a.json' });
       await service.toggleSource(source.id, false);
-      expect(mockDb.run).toHaveBeenCalled();
+      expect(mockDb.update).toHaveBeenCalled();
     });
   });
 
@@ -202,7 +207,7 @@ describe('ConfigSourcesService', () => {
 
       const result = await service.reorderSources([s2.id, s1.id]);
       expect(result).toBe(true);
-      expect(mockDb.run).toHaveBeenCalled();
+      expect(mockDb.update).toHaveBeenCalled();
     });
   });
 

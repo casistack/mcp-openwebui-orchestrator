@@ -31,6 +31,14 @@ function createMockDb() {
         return Promise.resolve(data[tableName] ?? []);
       }),
     })),
+    update: jest.fn<() => any>().mockImplementation((table: any) => ({
+      set: jest.fn<() => any>().mockImplementation(() => ({
+        where: jest.fn<() => any>().mockImplementation(() => Promise.resolve()),
+      })),
+    })),
+    delete: jest.fn<() => any>().mockImplementation((table: any) => ({
+      where: jest.fn<() => any>().mockImplementation(() => Promise.resolve()),
+    })),
     run: jest.fn<() => any>(),
   } as any;
 }

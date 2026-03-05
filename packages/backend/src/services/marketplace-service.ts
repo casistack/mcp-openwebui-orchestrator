@@ -4,6 +4,7 @@ import {
   marketplaceCollections, marketplaceCollectionItems, marketplaceReviewResponses,
   marketplaceListingPricing, marketplaceLicenses,
   orgMarketplaceAccess, orgMarketplaceMembers,
+  eq, and,
 } from '@mcp-platform/db';
 import type { AppDatabase } from '@mcp-platform/db';
 
@@ -156,15 +157,7 @@ export class MarketplaceService {
       if (value !== undefined) cleanUpdates[key] = value;
     }
 
-    const sets = Object.keys(cleanUpdates)
-      .map(k => `${this.camelToSnake(k)} = ?`)
-      .join(', ');
-    const values = Object.values(cleanUpdates).map(v =>
-      typeof v === 'object' && v !== null && !(v instanceof Date) ? JSON.stringify(v) : v,
-    );
-
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`UPDATE marketplace_listings SET ${sets} WHERE id = ?`, ...values, id);
+    await this.db.update(marketplaceListings).set(cleanUpdates).where(eq(marketplaceListings.id, id));
 
     return { ...existing, ...cleanUpdates };
   }
@@ -174,8 +167,7 @@ export class MarketplaceService {
     if (!existing) return false;
 
     try {
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`DELETE FROM marketplace_listings WHERE id = ?`, id);
+      await this.db.delete(marketplaceListings).where(eq(marketplaceListings.id, id));
     } catch {
       return false;
     }
@@ -206,11 +198,12 @@ export class MarketplaceService {
 
     if (existingReview) {
       // Update existing review
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(
-          `UPDATE marketplace_reviews SET rating = ?, title = ?, body = ?, updated_at = ? WHERE id = ?`,
-          rating, title ?? null, body ?? null, Math.floor(Date.now() / 1000), existingReview.id
-        );
+      await this.db.update(marketplaceReviews).set({
+        rating,
+        title: title ?? null,
+        body: body ?? null,
+        updatedAt: new Date(),
+      }).where(eq(marketplaceReviews.id, existingReview.id));
     } else {
       const id = crypto.randomUUID();
       await this.db.insert(marketplaceReviews).values({
@@ -229,11 +222,11 @@ export class MarketplaceService {
       ? allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length
       : 0;
 
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(
-        `UPDATE marketplace_listings SET avg_rating = ?, rating_count = ?, updated_at = ? WHERE id = ?`,
-        Math.round(avgRating * 10) / 10, allReviews.length, Math.floor(Date.now() / 1000), listingId
-      );
+    await this.db.update(marketplaceListings).set({
+      avgRating: Math.round(avgRating * 10) / 10,
+      ratingCount: allReviews.length,
+      updatedAt: new Date(),
+    }).where(eq(marketplaceListings.id, listingId));
 
     return { rating, avgRating: Math.round(avgRating * 10) / 10, ratingCount: allReviews.length };
   }
@@ -282,11 +275,10 @@ export class MarketplaceService {
     });
 
     // Bump install count
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(
-        `UPDATE marketplace_listings SET install_count = install_count + 1, updated_at = ? WHERE id = ?`,
-        Math.floor(Date.now() / 1000), listingId
-      );
+    await this.db.update(marketplaceListings).set({
+      installCount: (listing.installCount ?? 0) + 1,
+      updatedAt: new Date(),
+    }).where(eq(marketplaceListings.id, listingId));
 
     return { serverId, install: { id: installId, listingId, serverId, version: listing.version } };
   }
@@ -296,11 +288,9 @@ export class MarketplaceService {
     const install = installs.find(i => i.id === installId);
     if (!install) return false;
 
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(
-        `UPDATE marketplace_installs SET uninstalled_at = ? WHERE id = ?`,
-        Math.floor(Date.now() / 1000), installId
-      );
+    await this.db.update(marketplaceInstalls).set({
+      uninstalledAt: new Date(),
+    }).where(eq(marketplaceInstalls.id, installId));
 
     return true;
   }
@@ -375,8 +365,7 @@ export class MarketplaceService {
   async deleteCollection(id: string) {
     const existing = await this.getCollection(id);
     if (!existing) return false;
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`DELETE FROM marketplace_collections WHERE id = ?`, id);
+    await this.db.delete(marketplaceCollections).where(eq(marketplaceCollections.id, id));
     return true;
   }
 
@@ -406,8 +395,9 @@ export class MarketplaceService {
   }
 
   async removeFromCollection(collectionId: string, listingId: string) {
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`DELETE FROM marketplace_collection_items WHERE collection_id = ? AND listing_id = ?`, collectionId, listingId);
+    await this.db.delete(marketplaceCollectionItems).where(
+      and(eq(marketplaceCollectionItems.collectionId, collectionId), eq(marketplaceCollectionItems.listingId, listingId))
+    );
     return true;
   }
 
@@ -499,19 +489,11 @@ export class MarketplaceService {
     const now = new Date();
 
     if (existing) {
-      const sets: string[] = [];
-      const vals: unknown[] = [];
+      const updates: Record<string, unknown> = { updatedAt: now };
       for (const [key, value] of Object.entries(pricing)) {
-        if (value !== undefined) {
-          sets.push(`${this.camelToSnake(key)} = ?`);
-          vals.push(typeof value === 'object' ? JSON.stringify(value) : value);
-        }
+        if (value !== undefined) updates[key] = value;
       }
-      sets.push('updated_at = ?');
-      vals.push(Math.floor(now.getTime() / 1000));
-      vals.push(existing.id);
-      (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-        .run?.(`UPDATE marketplace_listing_pricing SET ${sets.join(', ')} WHERE id = ?`, ...vals);
+      await this.db.update(marketplaceListingPricing).set(updates).where(eq(marketplaceListingPricing.id, existing.id));
       return { ...existing, ...pricing, updatedAt: now };
     }
 
@@ -576,9 +558,10 @@ export class MarketplaceService {
   async revokeLicense(licenseId: string) {
     const existing = await this.getLicense(licenseId);
     if (!existing) return false;
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`UPDATE marketplace_licenses SET status = 'revoked', updated_at = ? WHERE id = ?`,
-        Math.floor(Date.now() / 1000), licenseId);
+    await this.db.update(marketplaceLicenses).set({
+      status: 'revoked',
+      updatedAt: new Date(),
+    }).where(eq(marketplaceLicenses.id, licenseId));
     return true;
   }
 
@@ -624,15 +607,19 @@ export class MarketplaceService {
   }
 
   async removeOrgListing(orgOwnerId: string, listingId: string) {
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`DELETE FROM org_marketplace_access WHERE org_owner_id = ? AND listing_id = ?`, orgOwnerId, listingId);
+    await this.db.delete(orgMarketplaceAccess).where(
+      and(eq(orgMarketplaceAccess.orgOwnerId, orgOwnerId), eq(orgMarketplaceAccess.listingId, listingId))
+    );
     return true;
   }
 
   async approveOrgListing(orgOwnerId: string, listingId: string, approvedBy: string) {
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`UPDATE org_marketplace_access SET approved_at = ?, approved_by = ? WHERE org_owner_id = ? AND listing_id = ?`,
-        Math.floor(Date.now() / 1000), approvedBy, orgOwnerId, listingId);
+    await this.db.update(orgMarketplaceAccess).set({
+      approvedAt: new Date(),
+      approvedBy,
+    }).where(
+      and(eq(orgMarketplaceAccess.orgOwnerId, orgOwnerId), eq(orgMarketplaceAccess.listingId, listingId))
+    );
     return true;
   }
 
@@ -656,8 +643,9 @@ export class MarketplaceService {
   }
 
   async removeOrgMember(orgOwnerId: string, userId: string) {
-    (this.db as unknown as { run(q: string, ...p: unknown[]): void })
-      .run?.(`DELETE FROM org_marketplace_members WHERE org_owner_id = ? AND user_id = ?`, orgOwnerId, userId);
+    await this.db.delete(orgMarketplaceMembers).where(
+      and(eq(orgMarketplaceMembers.orgOwnerId, orgOwnerId), eq(orgMarketplaceMembers.userId, userId))
+    );
     return true;
   }
 
@@ -667,7 +655,4 @@ export class MarketplaceService {
     return members.some(m => m.userId === userId);
   }
 
-  private camelToSnake(str: string): string {
-    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-  }
 }

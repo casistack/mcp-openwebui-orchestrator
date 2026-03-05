@@ -92,7 +92,7 @@ COPY --from=builder /app/packages/web/build packages/web/build/
 # Create non-root user
 RUN groupadd -r mcpgroup && \
     useradd -r -g mcpgroup -m -s /bin/bash mcpuser && \
-    mkdir -p /data /config && \
+    mkdir -p /data /config /app/tmp && \
     chown -R mcpuser:mcpgroup /app /data /config
 
 ENV NODE_ENV=production
